@@ -21,6 +21,9 @@ const api: ElectronAPI = {
     >,
   setTile: (index, tile) =>
     ipcRenderer.invoke('bridge:set-tile', index, tile) as Promise<BridgeSnapshot>,
+  addPage: () => ipcRenderer.invoke('bridge:add-page') as Promise<BridgeSnapshot>,
+  removePage: (page) =>
+    ipcRenderer.invoke('bridge:remove-page', page) as Promise<BridgeSnapshot>,
   removeDevice: (id) => ipcRenderer.invoke('bridge:remove-device', id),
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {

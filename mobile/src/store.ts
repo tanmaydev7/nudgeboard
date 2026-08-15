@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import {
   emptyDeck,
   formatFingerprint,
-  padDeck,
+  normalizeDeck,
   type DeckTileView,
   type PairingPayload,
 } from './protocol';
@@ -105,7 +105,7 @@ export const useAppStore = create<AppState>()(
       setScreen: (screen) => set({ screen, error: null }),
       setError: (error) => set({ error }),
       setStatus: (status) => set({ status }),
-      setDeck: (tiles) => set({ deck: padDeck(tiles), hasDeck: true }),
+      setDeck: (tiles) => set({ deck: normalizeDeck(tiles), hasDeck: true }),
       startPairing: (payload, otp) =>
         set({
           pairing: {

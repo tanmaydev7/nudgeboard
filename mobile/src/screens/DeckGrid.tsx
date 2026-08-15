@@ -1,18 +1,17 @@
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS } from '../protocol';
-import { useAppStore } from '../store';
+import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS, type DeckTileView } from '../protocol';
 import { colors } from '../theme';
 
 const palette = colors.dark;
 const GAP = 10;
 
 type Props = {
+  tiles: Array<DeckTileView | null>;
   onPressTile?: (id: string) => void;
 };
 
-export function DeckGrid({ onPressTile }: Props) {
-  const deck = useAppStore((s) => s.deck);
+export function DeckGrid({ tiles, onPressTile }: Props) {
   const [box, setBox] = useState<{ width: number; height: number } | undefined>(
     undefined,
   );
@@ -37,16 +36,16 @@ export function DeckGrid({ onPressTile }: Props) {
       )
     : 0;
   const iconSize = Math.round(tileSize * 0.42);
-  const tiles = Array.from(
+  const slots = Array.from(
     { length: GRID_SLOTS },
-    (_, index) => deck[index] ?? null,
+    (_, index) => tiles[index] ?? null,
   );
 
   return (
     <View style={styles.wrap} onLayout={onLayout}>
       {tileSize > 0 ? (
         <View style={[styles.grid, { width: tileSize * GRID_COLUMNS + GAP * (GRID_COLUMNS - 1) }]}>
-          {tiles.map((tile, index) => {
+          {slots.map((tile, index) => {
             const glyph = tile ? [...tile.name][0] : '+';
             const sizeStyle = { width: tileSize, height: tileSize };
             if (!tile) {

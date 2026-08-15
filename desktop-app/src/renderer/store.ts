@@ -6,6 +6,8 @@ export {
   GRID_COLUMNS,
   GRID_ROWS,
   GRID_SLOTS,
+  MAX_PAGES,
+  deckPageCount,
 } from '../shared/ipc-types';
 
 type AppState = {

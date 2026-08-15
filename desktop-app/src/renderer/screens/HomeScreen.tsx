@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { DeckTile, DesktopApp } from '../../shared/ipc-types';
-import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS, useAppStore } from '../store';
+import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS, MAX_PAGES, deckPageCount, useAppStore } from '../store';
 import { DeviceSwitcher } from './DeviceSwitcher';
 
 const DRAG_TYPE = 'application/x-nudgeboard-app';
@@ -43,6 +43,7 @@ export function HomeScreen() {
     devices.find((device) => device.id === snapshot?.activeDeviceId) ??
     devices[0];
   const tiles = snapshot?.tiles ?? Array.from({ length: GRID_SLOTS }, (): DeckTile | null => null);
+  const pages = deckPageCount(tiles);
   const [apps, setApps] = useState<DesktopApp[] | null>(null);
   const [icons, setIcons] = useState<Record<string, string>>({});
   const loadedIcons = useRef(icons);
@@ -50,14 +51,20 @@ export function HomeScreen() {
   const [query, setQuery] = useState('');
   const [overSlot, setOverSlot] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
   const [dialog, setDialog] = useState<'logout' | 'about' | 'help' | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const isMac = window.api.platform === 'darwin';
-  const filled = tiles.filter(Boolean).length;
+  const activePage = Math.min(page, pages - 1);
 
   useEffect(() => {
     void window.api.listApps().then(setApps);
   }, []);
+
+  useEffect(() => {
+    setPage(0);
+    setSelectedSlot(null);
+  }, [snapshot?.activeDeviceId]);
 
   const tileKey = useMemo(
     () => tiles.map((tile) => tile?.path ?? '').join('\0'),
@@ -141,6 +148,29 @@ export function HomeScreen() {
   }, [apps, query]);
 
   const slots = Array.from({ length: GRID_SLOTS }, (_, index) => index);
+  const pageIndexes = Array.from({ length: pages }, (_, index) => index);
+
+  const selectPage = (next: number) => {
+    setPage(next);
+    setSelectedSlot(null);
+  };
+
+  const addPage = () => {
+    if (pages >= MAX_PAGES) {
+      return;
+    }
+    void window.api.addPage().then((next) => {
+      setSnapshot(next);
+      selectPage(deckPageCount(next.tiles) - 1);
+    });
+  };
+
+  const removePage = (index: number) => {
+    void window.api.removePage(index).then((next) => {
+      setSnapshot(next);
+      selectPage(Math.min(activePage, Math.max(0, deckPageCount(next.tiles) - 1)));
+    });
+  };
 
   const dropOn = (index: number, event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -187,22 +217,61 @@ export function HomeScreen() {
 
         <div className="pages">
           <h2>Pages</h2>
-          <div className="page-item active">
-            <div className="page-mini" aria-hidden>
-              {slots.map((slot) => (
-                <span
-                  key={slot}
-                  className={tiles[slot] ? 'filled' : undefined}
-                />
-              ))}
-            </div>
-            <div className="page-copy">
-              <strong>Deck</strong>
-              <em>
-                Page 1 · {filled}/{GRID_SLOTS}
-              </em>
-            </div>
+          <div className="page-list">
+            {pageIndexes.map((index) => {
+              const start = index * GRID_SLOTS;
+              const pageFilled = tiles
+                .slice(start, start + GRID_SLOTS)
+                .filter(Boolean).length;
+              return (
+                <div
+                  key={index}
+                  className={`page-item${index === activePage ? ' active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="page-select"
+                    onClick={() => selectPage(index)}
+                  >
+                    <div className="page-mini" aria-hidden>
+                      {slots.map((slot) => (
+                        <span
+                          key={slot}
+                          className={
+                            tiles[start + slot] ? 'filled' : undefined
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="page-copy">
+                      <strong>Page {index + 1}</strong>
+                      <em>
+                        {pageFilled}/{GRID_SLOTS} apps
+                      </em>
+                    </div>
+                  </button>
+                  {pages > 1 ? (
+                    <button
+                      type="button"
+                      className="page-remove"
+                      aria-label={`Remove page ${index + 1}`}
+                      onClick={() => removePage(index)}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
+          <button
+            type="button"
+            className="page-add"
+            disabled={pages >= MAX_PAGES}
+            onClick={addPage}
+          >
+            + Add page
+          </button>
         </div>
 
         <div className="sidebar-foot">
@@ -222,7 +291,8 @@ export function HomeScreen() {
           <div>
             <h1>Deck</h1>
             <p>
-              Click an empty slot to add an app · Drag from below to a slot
+              Page {activePage + 1} of {pages} · Click an empty slot or drag an
+              app onto it
             </p>
           </div>
           {active?.connected ? (
@@ -240,81 +310,103 @@ export function HomeScreen() {
             <div className="phone-bezel">
               <div className="phone-screen">
                 <div
-                  className="slot-grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-                    gridTemplateRows: `repeat(${GRID_ROWS}, minmax(0, 1fr))`,
-                  }}
+                  className="page-track"
+                  style={{ transform: `translateX(-${activePage * 100}%)` }}
                 >
-                  {slots.map((slot) => {
-                    const tile = tiles[slot];
-                    const icon = tile ? iconFor(tile.path, tile.id) : undefined;
-                    return (
-                      <button
-                        key={slot}
-                        type="button"
-                        className={`slot${tile ? ' filled' : ''}${overSlot === slot ? ' over' : ''}${selectedSlot === slot ? ' selected' : ''}`}
-                        aria-label={tile ? tile.name : 'Add app'}
-                        aria-pressed={selectedSlot === slot}
-                        onClick={() => {
-                          if (tile) {
-                            return;
-                          }
-                          const next = selectedSlot === slot ? null : slot;
-                          setSelectedSlot(next);
-                          if (next !== null) {
-                            searchRef.current?.focus();
-                          }
+                  {pageIndexes.map((pageIndex) => (
+                    <div key={pageIndex} className="page-pane">
+                      <div
+                        className="slot-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+                          gridTemplateRows: `repeat(${GRID_ROWS}, minmax(0, 1fr))`,
                         }}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                          setOverSlot(slot);
-                        }}
-                        onDragLeave={() =>
-                          setOverSlot((current) =>
-                            current === slot ? null : current,
-                          )
-                        }
-                        onDrop={(event) => dropOn(slot, event)}
                       >
-                        {tile ? (
-                          <>
-                            {icon ? (
-                              <img
-                                alt=""
-                                className="slot-icon"
-                                src={icon}
-                                draggable={false}
-                              />
-                            ) : (
-                              <span className="slot-glyph">
-                                {[...tile.name][0]}
-                              </span>
-                            )}
-                            <span
-                              className="slot-clear"
-                              role="button"
-                              aria-label={`Remove ${tile.name}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void window.api
-                                  .setTile(slot, null)
-                                  .then(setSnapshot);
+                        {slots.map((slot) => {
+                          const index = pageIndex * GRID_SLOTS + slot;
+                          const tile = tiles[index];
+                          const icon = tile
+                            ? iconFor(tile.path, tile.id)
+                            : undefined;
+                          return (
+                            <button
+                              key={index}
+                              type="button"
+                              className={`slot${tile ? ' filled' : ''}${overSlot === index ? ' over' : ''}${selectedSlot === index ? ' selected' : ''}`}
+                              aria-label={tile ? tile.name : 'Add app'}
+                              aria-pressed={selectedSlot === index}
+                              onClick={() => {
+                                if (tile) {
+                                  return;
+                                }
+                                const next =
+                                  selectedSlot === index ? null : index;
+                                setSelectedSlot(next);
+                                if (next !== null) {
+                                  searchRef.current?.focus();
+                                }
                               }}
+                              onDragOver={(event) => {
+                                event.preventDefault();
+                                setOverSlot(index);
+                              }}
+                              onDragLeave={() =>
+                                setOverSlot((current) =>
+                                  current === index ? null : current,
+                                )
+                              }
+                              onDrop={(event) => dropOn(index, event)}
                             >
-                              ×
-                            </span>
-                          </>
-                        ) : null}
-                      </button>
-                    );
-                  })}
+                              {tile ? (
+                                <>
+                                  {icon ? (
+                                    <img
+                                      alt=""
+                                      className="slot-icon"
+                                      src={icon}
+                                      draggable={false}
+                                    />
+                                  ) : (
+                                    <span className="slot-glyph">
+                                      {[...tile.name][0]}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="slot-clear"
+                                    role="button"
+                                    aria-label={`Remove ${tile.name}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void window.api
+                                        .setTile(index, null)
+                                        .then(setSnapshot);
+                                    }}
+                                  >
+                                    ×
+                                  </span>
+                                </>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
-          <div className="page-dots" aria-hidden>
-            <span className="on" />
+          <div className="page-dots">
+            {pageIndexes.map((index) => (
+              <button
+                key={index}
+                type="button"
+                className={index === activePage ? 'on' : undefined}
+                aria-label={`Page ${index + 1}`}
+                aria-current={index === activePage}
+                onClick={() => selectPage(index)}
+              />
+            ))}
           </div>
           {active ? (
             <p className={`mirror-line${active.connected ? ' live' : ''}`}>
@@ -445,7 +537,8 @@ export function HomeScreen() {
             <h2>Help &amp; Feedback</h2>
             <p>
               Click an empty slot, then click an app below — or drag an app
-              onto the phone. Hover a filled slot and press × to clear it.
+              onto the phone. Hover a filled slot and press × to clear it. Add
+              more pages in the sidebar; swipe between them on the phone.
             </p>
             <div className="modal-actions">
               <button

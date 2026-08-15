@@ -135,8 +135,8 @@ p {
 .page-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 0.75rem;
+  gap: 0.35rem;
+  padding: 0.2rem 0.2rem 0.2rem 0.15rem;
   border-radius: 14px;
   color: var(--text);
 }
@@ -144,6 +144,71 @@ p {
 .page-item.active {
   background: #1c1c20;
   box-shadow: inset 0 0 0 1px #2a2a30;
+}
+
+.page-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.page-select {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0.5rem 0.55rem;
+  border-radius: 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.page-remove {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-right: 0.25rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.page-remove:hover {
+  color: #f87171;
+  background: #2a1c1c;
+}
+
+.page-add {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #d4d4d8;
+  text-align: left;
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.page-add:hover:not(:disabled) {
+  background: #1c1c20;
+}
+
+.page-add:disabled {
+  color: #4b4b52;
+  cursor: default;
 }
 
 .page-mini {
@@ -296,9 +361,24 @@ p {
   overflow: hidden;
   border-radius: 20px;
   background: #050505;
-  padding: 14px 16px;
+  padding: 0;
   display: flex;
   box-shadow: inset 0 0 0 1px #111;
+}
+
+.page-track {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  transition: transform 220ms ease;
+}
+
+.page-pane {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
+  box-sizing: border-box;
 }
 
 .page-dots {
@@ -306,14 +386,17 @@ p {
   gap: 6px;
 }
 
-.page-dots span {
+.page-dots button {
   width: 6px;
   height: 6px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
   background: #3a3a40;
+  cursor: pointer;
 }
 
-.page-dots span.on {
+.page-dots button.on {
   background: #d4d4d8;
 }
 
@@ -956,11 +1039,13 @@ p {
   font-size: 0.85rem;
 }
 
-.app-list::-webkit-scrollbar {
+.app-list::-webkit-scrollbar,
+.page-list::-webkit-scrollbar {
   width: 8px;
 }
 
-.app-list::-webkit-scrollbar-thumb {
+.app-list::-webkit-scrollbar-thumb,
+.page-list::-webkit-scrollbar-thumb {
   background: #2a2a30;
   border-radius: 99px;
 }

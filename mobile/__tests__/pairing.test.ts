@@ -1,11 +1,15 @@
 import { resolveDeviceIdentity } from '../src/deviceIdentity';
 import {
   APP_ID,
+  deckPageCount,
   emptyDeck,
   formatCountdown,
   formatFingerprint,
   GRID_SLOTS,
+  MAX_PAGES,
+  normalizeDeck,
   padDeck,
+  pageTiles,
   parsePairingPayload,
   PROTOCOL_VERSION,
 } from '../src/protocol';
@@ -105,6 +109,41 @@ describe('deck layout', () => {
     }));
     expect(padDeck(tiles)).toHaveLength(GRID_SLOTS);
     expect(padDeck(tiles)[7]).toEqual({ id: '7', name: 'App 7' });
+  });
+
+  it('grows a 9-tile deck into two pages', () => {
+    const tiles = Array.from({ length: 9 }, (_, index) => ({
+      id: String(index),
+      name: `App ${index}`,
+    }));
+    const next = normalizeDeck(tiles);
+    expect(deckPageCount(next)).toBe(2);
+    expect(next).toHaveLength(GRID_SLOTS * 2);
+    expect(next[8]).toEqual({ id: '8', name: 'App 8' });
+    expect(next[9]).toBeNull();
+  });
+
+  it('caps the deck at eight pages', () => {
+    const tiles = Array.from(
+      { length: MAX_PAGES * GRID_SLOTS + 4 },
+      (_, index) => ({
+        id: String(index),
+        name: `App ${index}`,
+      }),
+    );
+    expect(normalizeDeck(tiles)).toHaveLength(MAX_PAGES * GRID_SLOTS);
+  });
+
+  it('slices a later page from a multi-page deck', () => {
+    const tiles = normalizeDeck([
+      ...Array.from({ length: GRID_SLOTS }, (_, index) => ({
+        id: String(index),
+        name: `App ${index}`,
+      })),
+      { id: 'x', name: 'Extra' },
+    ]);
+    expect(pageTiles(tiles, 1)[0]).toEqual({ id: 'x', name: 'Extra' });
+    expect(pageTiles(tiles, 1)).toHaveLength(GRID_SLOTS);
   });
 });
 

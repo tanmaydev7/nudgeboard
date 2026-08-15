@@ -62,6 +62,7 @@ export type ServerMessage =
 export const GRID_COLUMNS = 4;
 export const GRID_ROWS = 2;
 export const GRID_SLOTS = GRID_COLUMNS * GRID_ROWS;
+export const MAX_PAGES = 8;
 
 export function emptyDeck(): Array<DeckTileView | null> {
   return Array.from({ length: GRID_SLOTS }, (): DeckTileView | null => null);
@@ -75,6 +76,31 @@ export function padDeck(
     next.push(null);
   }
   return next;
+}
+
+export function deckPageCount(tiles: Array<unknown>): number {
+  return Math.min(
+    MAX_PAGES,
+    Math.max(1, Math.ceil(tiles.length / GRID_SLOTS) || 1),
+  );
+}
+
+export function normalizeDeck(
+  tiles: Array<DeckTileView | null>,
+): Array<DeckTileView | null> {
+  const size = deckPageCount(tiles) * GRID_SLOTS;
+  const next = tiles.slice(0, size);
+  while (next.length < size) {
+    next.push(null);
+  }
+  return next;
+}
+
+export function pageTiles(
+  tiles: Array<DeckTileView | null>,
+  page: number,
+): Array<DeckTileView | null> {
+  return padDeck(tiles.slice(page * GRID_SLOTS, page * GRID_SLOTS + GRID_SLOTS));
 }
 
 const FINGERPRINT_RE = /^[0-9A-F]{2}(?::[0-9A-F]{2}){2}$/;

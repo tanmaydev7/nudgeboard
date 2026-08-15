@@ -7,6 +7,9 @@ import {
   GRID_COLUMNS,
   GRID_ROWS,
   GRID_SLOTS,
+  MAX_PAGES,
+  emptyTiles,
+  normalizeTiles,
   type BridgeSnapshot,
   type DeckTile,
   type DeviceProfile,
@@ -28,7 +31,6 @@ import {
 } from '../shared/protocol';
 import { listDesktopApps, iconsForPaths, launchDesktopApp } from './apps';
 import {
-  emptyTiles,
   loadPersisted,
   savePersisted,
   type PersistedState,
@@ -192,10 +194,7 @@ const tilesFor = (deviceId: string | null): Array<DeckTile | null> => {
     return emptyTiles();
   }
   const existing = persisted.tilesByDevice[deviceId];
-  if (existing && existing.length === GRID_SLOTS) {
-    return existing;
-  }
-  const tiles = emptyTiles();
+  const tiles = existing ? normalizeTiles(existing) : emptyTiles();
   persisted.tilesByDevice[deviceId] = tiles;
   return tiles;
 };
@@ -559,15 +558,13 @@ export const startBridge = async (): Promise<void> => {
     'bridge:set-tile',
     (_event, index: number, tile: DeckTile | null) => {
       const deviceId = persisted.activeDeviceId;
-      if (
-        !deviceId ||
-        !Number.isInteger(index) ||
-        index < 0 ||
-        index >= GRID_SLOTS
-      ) {
+      if (!deviceId || !Number.isInteger(index) || index < 0) {
         return snapshot();
       }
       const tiles = tilesFor(deviceId).slice();
+      if (index >= tiles.length) {
+        return snapshot();
+      }
       tiles[index] = tile;
       persisted.tilesByDevice[deviceId] = tiles;
       save();
@@ -576,6 +573,39 @@ export const startBridge = async (): Promise<void> => {
       return snapshot();
     },
   );
+  ipcMain.handle('bridge:add-page', () => {
+    const deviceId = persisted.activeDeviceId;
+    if (!deviceId) {
+      return snapshot();
+    }
+    const tiles = tilesFor(deviceId);
+    if (tiles.length >= MAX_PAGES * GRID_SLOTS) {
+      return snapshot();
+    }
+    persisted.tilesByDevice[deviceId] = tiles.concat(emptyTiles());
+    save();
+    sendToRenderer();
+    pushDeck(deviceId);
+    return snapshot();
+  });
+  ipcMain.handle('bridge:remove-page', (_event, page: number) => {
+    const deviceId = persisted.activeDeviceId;
+    if (!deviceId || !Number.isInteger(page) || page < 0) {
+      return snapshot();
+    }
+    const tiles = tilesFor(deviceId);
+    const pages = tiles.length / GRID_SLOTS;
+    if (pages <= 1 || page >= pages) {
+      return snapshot();
+    }
+    persisted.tilesByDevice[deviceId] = tiles
+      .slice(0, page * GRID_SLOTS)
+      .concat(tiles.slice((page + 1) * GRID_SLOTS));
+    save();
+    sendToRenderer();
+    pushDeck(deviceId);
+    return snapshot();
+  });
   ipcMain.handle('bridge:remove-device', (_event, id: string) => {
     dropDeviceId(id);
     persisted.devices = persisted.devices.filter((device) => device.id !== id);

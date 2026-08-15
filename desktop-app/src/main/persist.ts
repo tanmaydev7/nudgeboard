@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
-import { GRID_SLOTS, type DeckTile } from '../shared/ipc-types';
+import { type DeckTile } from '../shared/ipc-types';
 import { formatFingerprint, type DevicePlatform } from '../shared/protocol';
 
 export type StoredDevice = {
@@ -23,9 +23,6 @@ export type PersistedState = {
   activeDeviceId: string | null;
   tilesByDevice: Record<string, Array<DeckTile | null>>;
 };
-
-export const emptyTiles = (): Array<DeckTile | null> =>
-  Array.from({ length: GRID_SLOTS }, (): DeckTile | null => null);
 
 export const emptyState = (): PersistedState => ({
   fingerprint: formatFingerprint(randomBytes(3)),
