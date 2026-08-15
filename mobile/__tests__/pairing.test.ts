@@ -1,3 +1,4 @@
+import { resolveDeviceIdentity } from '../src/deviceIdentity';
 import {
   APP_ID,
   emptyDeck,
@@ -104,5 +105,49 @@ describe('deck layout', () => {
     }));
     expect(padDeck(tiles)).toHaveLength(GRID_SLOTS);
     expect(padDeck(tiles)[7]).toEqual({ id: '7', name: 'App 7' });
+  });
+});
+
+describe('device identity', () => {
+  it('prefers the user-assigned phone name over the model code', () => {
+    expect(
+      resolveDeviceIdentity('android', {
+        userName: "Tanmay's Redmi",
+        marketName: 'Redmi Note 12 Pro 5G',
+        manufacturer: 'Xiaomi',
+        model: '22101320I',
+      }),
+    ).toEqual({ name: "Tanmay's Redmi", model: '22101320I' });
+  });
+
+  it('uses the marketing name when Settings still reports the model code', () => {
+    expect(
+      resolveDeviceIdentity('android', {
+        userName: '22101320I',
+        marketName: 'Redmi Note 12 Pro 5G',
+        manufacturer: 'Xiaomi',
+        model: '22101320I',
+      }),
+    ).toEqual({ name: 'Redmi Note 12 Pro 5G', model: '22101320I' });
+  });
+
+  it('falls back to manufacturer plus model', () => {
+    expect(
+      resolveDeviceIdentity('android', {
+        manufacturer: 'xiaomi',
+        model: '22101320I',
+      }),
+    ).toEqual({ name: 'Xiaomi 22101320I', model: '22101320I' });
+  });
+
+  it('prefers the Xiaomi Settings rename over the leftover marketing name', () => {
+    expect(
+      resolveDeviceIdentity('android', {
+        names: ['POCO X5 Pro 5G pookie', 'POCO X5 Pro 5G'],
+        marketName: 'POCO X5 Pro 5G',
+        manufacturer: 'Xiaomi',
+        model: '22101320I',
+      }),
+    ).toEqual({ name: 'POCO X5 Pro 5G pookie', model: '22101320I' });
   });
 });

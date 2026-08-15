@@ -320,7 +320,7 @@ export function HomeScreen() {
             <p className={`mirror-line${active.connected ? ' live' : ''}`}>
               <span className={`dot ${active.connected ? 'on' : 'off'}`} />
               {active.connected
-                ? `Mirroring ${active.name} · landscape`
+                ? `Deck on ${active.name}`
                 : `${active.name} is saved — waiting to reconnect`}
             </p>
           ) : null}

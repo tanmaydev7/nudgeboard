@@ -888,6 +888,11 @@ p {
   color: #86ef9a;
 }
 
+.device-id {
+  color: var(--muted);
+  font-style: normal;
+}
+
 .switcher-menu {
   position: absolute;
   left: 0;

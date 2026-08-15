@@ -1,4 +1,8 @@
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
+import {
+  resolveDeviceIdentity,
+  type DeviceNameHints,
+} from './deviceIdentity';
 import {
   parsePairingPayload,
   type ClientMessage,
@@ -10,29 +14,50 @@ import { useAppStore } from './store';
 
 export { parsePairingPayload };
 
+type NudgeDeviceModule = DeviceNameHints & {
+  getHints?: () => DeviceNameHints;
+};
+
+const readDeviceHints = (): DeviceNameHints => {
+  const native = NativeModules.NudgeDevice as NudgeDeviceModule | undefined;
+  const live = native?.getHints?.() ?? native;
+  const constants = Platform.constants as {
+    Brand?: string;
+    Manufacturer?: string;
+    Model?: string;
+  };
+  return {
+    names: live?.names,
+    userName: live?.userName,
+    marketName: live?.marketName,
+    manufacturer:
+      live?.manufacturer || constants.Manufacturer || constants.Brand,
+    model: live?.model || constants.Model,
+  };
+};
+
 export function getDeviceInfo(): DeviceHello {
   const { deviceId, fingerprint } = useAppStore.getState();
-  if (Platform.OS === 'android') {
-    const constants = Platform.constants as {
-      Model?: string;
-      Release?: string;
-    };
-    const model = constants.Model ?? 'Android';
+  const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+  const identity = resolveDeviceIdentity(platform, readDeviceHints());
+
+  if (platform === 'android') {
+    const release = (Platform.constants as { Release?: string }).Release;
     return {
       id: deviceId,
-      name: model,
-      platform: 'android',
-      model,
-      os: constants.Release ? `Android ${constants.Release}` : 'Android',
+      name: identity.name,
+      platform,
+      model: identity.model,
+      os: release ? `Android ${release}` : 'Android',
       fingerprint,
     };
   }
 
   return {
     id: deviceId,
-    name: 'iPhone',
-    platform: 'ios',
-    model: 'iPhone',
+    name: identity.name,
+    platform,
+    model: identity.model,
     os: `iOS ${String(Platform.Version)}`,
     fingerprint,
   };

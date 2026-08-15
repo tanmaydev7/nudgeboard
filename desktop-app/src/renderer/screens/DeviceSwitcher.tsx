@@ -76,6 +76,9 @@ export function DeviceSwitcher({ onLogout }: Props) {
           <em className={`device-status${active?.connected ? ' on' : ''}`}>
             <span className={`dot ${active?.connected ? 'on' : 'off'}`} />
             {active?.connected ? 'Connected' : 'Waiting'}
+            {active?.model && active.model !== active.name ? (
+              <span className="device-id"> · {active.model}</span>
+            ) : null}
           </em>
         </span>
       </button>
