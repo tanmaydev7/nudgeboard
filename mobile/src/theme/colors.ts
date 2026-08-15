@@ -5,12 +5,16 @@ export const colors = {
     muted: '#78716C',
     slot: '#E7E5E4',
     green: '#16A34A',
+    purple: '#7c5cff',
+    lime: '#c8f247',
   },
   dark: {
-    background: '#000000',
+    background: '#0b0c0e',
     text: '#F5F5F4',
     muted: '#A8A29E',
-    slot: '#2A2D33',
+    slot: '#1c1f26',
     green: '#30D158',
+    purple: '#7c5cff',
+    lime: '#c8f247',
   },
 } as const;

@@ -17,7 +17,7 @@ if (require('electron-squirrel-startup')) {
 const isMac = process.platform === 'darwin';
 const isDev = process.env.NODE_ENV === 'development';
 const PRODUCTION_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:";
 
 const applyContentSecurityPolicy = (): void => {
   if (isDev) {
@@ -115,11 +115,11 @@ const createAppMenu = (): void => {
 
 const createWindow = (): void => {
   const win = new BrowserWindow({
-    width: 720,
-    height: 760,
-    minWidth: 560,
-    minHeight: 560,
-    backgroundColor: '#0f1115',
+    width: 640,
+    height: 840,
+    minWidth: 520,
+    minHeight: 680,
+    backgroundColor: '#121212',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,

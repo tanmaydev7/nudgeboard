@@ -1,56 +1,46 @@
-import { useEffect, useState } from 'react';
-import type { BridgeSnapshot } from '../shared/ipc-types';
+import { useEffect } from 'react';
+import { HomeScreen } from './screens/HomeScreen';
+import { OtpScreen, QrScreen } from './screens/PairingScreens';
+import { useAppStore } from './store';
 
 const App = () => {
-  const [snapshot, setSnapshot] = useState<BridgeSnapshot | null>(null);
+  const view = useAppStore((s) => s.view);
+  const setView = useAppStore((s) => s.setView);
+  const setSnapshot = useAppStore((s) => s.setSnapshot);
+  const snapshot = useAppStore((s) => s.snapshot);
   const isMac = window.api.platform === 'darwin';
-  const connected = snapshot?.connected ?? [];
 
   useEffect(() => {
-    void window.api.getSnapshot().then(setSnapshot);
+    void window.api.getSnapshot().then((next) => {
+      setSnapshot(next);
+      if (next.devices.length > 0) {
+        setView('home');
+        return;
+      }
+      void window.api.generateQr().then((pairing) => {
+        setSnapshot(pairing);
+        setView('qr');
+      });
+    });
     return window.api.onSnapshot(setSnapshot);
-  }, []);
+  }, [setSnapshot, setView]);
+
+  useEffect(() => {
+    const step = snapshot?.pairing?.step;
+    if (step === 'qr' || step === 'otp') {
+      setView(step);
+      return;
+    }
+    if ((snapshot?.devices.length ?? 0) > 0) {
+      setView('home');
+    }
+  }, [snapshot?.pairing?.step, snapshot?.devices.length, setView]);
 
   return (
-    <main className={isMac ? 'app mac' : 'app'}>
-      <h1>Nudgeboard</h1>
-      <p className="lead">
-        Generate a QR code, scan it on your phone, then enter the OTP shown here.
-      </p>
-
-      <button
-        type="button"
-        className="primary"
-        onClick={() => void window.api.generateQr()}
-      >
-        Generate QR
-      </button>
-
-      {snapshot?.pairing ? (
-        <section className="card pairing">
-          <img alt="Pairing QR code" src={snapshot.pairing.qrDataUrl} />
-          <div>
-            <p className="muted">OTP</p>
-            <p className="otp">{snapshot.pairing.otp}</p>
-            <p className="muted">
-              {snapshot.pairing.payload.host}:{snapshot.pairing.payload.port}
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {connected.length > 0 ? (
-        <section className="devices">
-          {connected.map((device) => (
-            <div key={device.id} className="device">
-              <strong>{device.name}</strong>
-              <span>
-                {device.model} · {device.os}
-              </span>
-            </div>
-          ))}
-        </section>
-      ) : null}
+    <main className={isMac ? `shell mac ${view}` : `shell ${view}`}>
+      {view === 'qr' ? <QrScreen /> : null}
+      {view === 'otp' ? <OtpScreen /> : null}
+      {view === 'home' ? <HomeScreen /> : null}
     </main>
   );
 };

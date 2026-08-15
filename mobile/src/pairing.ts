@@ -2,16 +2,16 @@ import { Platform } from 'react-native';
 import {
   parsePairingPayload,
   type ClientMessage,
+  type DeckTileView,
   type DeviceHello,
-  type PairingPayload,
   type ServerMessage,
 } from './protocol';
+import { useAppStore } from './store';
 
 export { parsePairingPayload };
 
-const deviceId = `${Platform.OS}-${Math.random().toString(36).slice(2, 10)}`;
-
 export function getDeviceInfo(): DeviceHello {
+  const { deviceId, fingerprint } = useAppStore.getState();
   if (Platform.OS === 'android') {
     const constants = Platform.constants as {
       Model?: string;
@@ -24,6 +24,7 @@ export function getDeviceInfo(): DeviceHello {
       platform: 'android',
       model,
       os: constants.Release ? `Android ${constants.Release}` : 'Android',
+      fingerprint,
     };
   }
 
@@ -33,57 +34,51 @@ export function getDeviceInfo(): DeviceHello {
     platform: 'ios',
     model: 'iPhone',
     os: `iOS ${String(Platform.Version)}`,
+    fingerprint,
   };
 }
 
-export async function scanPairingQr(): Promise<PairingPayload> {
-  const { DataScanner } = await import('react-native-data-scanner');
-  const barcode = await DataScanner.scanBarcode({
-    targetFormats: ['qr'],
-  });
-  return parsePairingPayload(barcode.value);
-}
-
 export function connectBridge(
-  payload: PairingPayload,
-  otp: string,
+  host: string,
+  port: number,
+  message: ClientMessage,
   handlers: {
-    onConnected: (hostName: string) => void;
+    onConnected: (hostName: string, fingerprint: string) => void;
+    onDeck: (tiles: Array<DeckTileView | null>) => void;
     onError: (reason: string) => void;
     onClose: () => void;
   },
 ): { close: () => void } {
-  const ws = new WebSocket(`ws://${payload.host}:${payload.port}`);
+  const ws = new WebSocket(`ws://${host}:${port}`);
   let opened = false;
 
   ws.onopen = () => {
     opened = true;
-    const hello: ClientMessage = {
-      type: 'hello',
-      token: payload.token,
-      otp,
-      device: getDeviceInfo(),
-    };
-    ws.send(JSON.stringify(hello));
+    ws.send(JSON.stringify(message));
   };
 
   ws.onmessage = (event) => {
-    let message: ServerMessage;
+    let payload: ServerMessage;
     try {
-      message = JSON.parse(String(event.data)) as ServerMessage;
+      payload = JSON.parse(String(event.data)) as ServerMessage;
     } catch {
       handlers.onError('Invalid desktop message');
       return;
     }
 
-    if (message.type === 'hello_err') {
-      handlers.onError(message.reason);
+    if (payload.type === 'hello_err') {
+      handlers.onError(payload.reason);
       ws.close();
       return;
     }
 
-    if (message.type === 'hello_ok') {
-      handlers.onConnected(message.hostName);
+    if (payload.type === 'hello_ok') {
+      handlers.onConnected(payload.hostName, payload.fingerprint);
+      return;
+    }
+
+    if (payload.type === 'deck') {
+      handlers.onDeck(payload.tiles);
     }
   };
 
