@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS } from '../protocol';
 import { useAppStore } from '../store';
 import { colors } from '../theme';
@@ -7,7 +7,11 @@ import { colors } from '../theme';
 const palette = colors.dark;
 const GAP = 10;
 
-export function DeckGrid() {
+type Props = {
+  onPressTile?: (id: string) => void;
+};
+
+export function DeckGrid({ onPressTile }: Props) {
   const deck = useAppStore((s) => s.deck);
   const [box, setBox] = useState<{ width: number; height: number } | undefined>(
     undefined,
@@ -44,41 +48,48 @@ export function DeckGrid() {
         <View style={[styles.grid, { width: tileSize * GRID_COLUMNS + GAP * (GRID_COLUMNS - 1) }]}>
           {tiles.map((tile, index) => {
             const glyph = tile ? [...tile.name][0] : '+';
+            const sizeStyle = { width: tileSize, height: tileSize };
+            if (!tile) {
+              return (
+                <View
+                  key={`empty-${index}`}
+                  style={[styles.tile, sizeStyle]}
+                >
+                  <Text style={styles.plus}>+</Text>
+                </View>
+              );
+            }
             return (
-              <View
-                key={tile?.id ?? `empty-${index}`}
-                style={[
+              <Pressable
+                key={`${tile.id}-${index}`}
+                onPress={() => onPressTile?.(tile.id)}
+                style={({ pressed }) => [
                   styles.tile,
-                  tile ? styles.filled : null,
-                  { width: tileSize, height: tileSize },
+                  styles.filled,
+                  sizeStyle,
+                  pressed ? styles.pressed : null,
                 ]}
               >
-                {tile ? (
-                  <>
-                    {tile.icon ? (
-                      <Image
-                        source={{ uri: tile.icon }}
-                        style={{ width: iconSize, height: iconSize }}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.glyphWrap,
-                          { width: iconSize, height: iconSize },
-                        ]}
-                      >
-                        <Text style={styles.glyph}>{glyph}</Text>
-                      </View>
-                    )}
-                    <Text style={styles.name} numberOfLines={1}>
-                      {tile.name}
-                    </Text>
-                  </>
+                {tile.icon ? (
+                  <Image
+                    source={{ uri: tile.icon }}
+                    style={{ width: iconSize, height: iconSize }}
+                    resizeMode="contain"
+                  />
                 ) : (
-                  <Text style={styles.plus}>+</Text>
+                  <View
+                    style={[
+                      styles.glyphWrap,
+                      { width: iconSize, height: iconSize },
+                    ]}
+                  >
+                    <Text style={styles.glyph}>{glyph}</Text>
+                  </View>
                 )}
-              </View>
+                <Text style={styles.name} numberOfLines={1}>
+                  {tile.name}
+                </Text>
+              </Pressable>
             );
           })}
         </View>
@@ -134,5 +145,8 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 28,
     fontWeight: '500',
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });

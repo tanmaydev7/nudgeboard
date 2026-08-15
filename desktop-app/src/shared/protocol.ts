@@ -37,6 +37,10 @@ export type ClientMessage =
       type: 'reconnect';
       token: string;
       device: DeviceHello;
+    }
+  | {
+      type: 'press';
+      id: string;
     };
 
 export type DeckTileView = {

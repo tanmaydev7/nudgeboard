@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { basename, dirname, extname, join } from 'path';
@@ -591,4 +591,22 @@ export const listDesktopApps = async (): Promise<DesktopApp[]> => {
     apps = await listLinux();
   }
   return uniqueByName(apps.filter((app) => app.name.length > 0));
+};
+
+export const launchDesktopApp = async (target: string): Promise<void> => {
+  if (!target) {
+    return;
+  }
+  if (process.platform === 'win32' && isShellAppPath(target)) {
+    spawn('explorer.exe', [target], { detached: true, stdio: 'ignore' }).unref();
+    return;
+  }
+  if (isProtocolLaunch(target)) {
+    await shell.openExternal(target);
+    return;
+  }
+  const error = await shell.openPath(target);
+  if (error) {
+    throw new Error(error);
+  }
 };

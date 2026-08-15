@@ -10,9 +10,10 @@ const palette = colors.dark;
 
 type Props = {
   onDisconnect: () => void;
+  onPressTile?: (id: string) => void;
 };
 
-export function DeckScreen({ onDisconnect }: Props) {
+export function DeckScreen({ onDisconnect, onPressTile }: Props) {
   const connectedName = useAppStore((s) => s.connectedName);
   const profiles = useAppStore((s) => s.profiles);
   const activeFingerprint = useAppStore((s) => s.activeFingerprint);
@@ -48,7 +49,7 @@ export function DeckScreen({ onDisconnect }: Props) {
             {live ? '• linked' : '• not connected'}
           </Text>
         </Pressable>
-        <DeckGrid />
+        <DeckGrid onPressTile={live ? onPressTile : undefined} />
       </View>
       <ProfileDrawer ref={drawerRef} onDisconnect={onDisconnect} />
     </View>

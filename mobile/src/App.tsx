@@ -46,6 +46,10 @@ function useBridgeConnection() {
     connectionRef.current = null;
   };
 
+  const pressTile = (id: string) => {
+    connectionRef.current?.send({ type: 'press', id });
+  };
+
   useEffect(() => {
     if (status !== 'connecting') {
       return;
@@ -124,7 +128,7 @@ function useBridgeConnection() {
     setDeck,
   ]);
 
-  return { disconnect };
+  return { disconnect, pressTile };
 }
 
 function AppShell() {
@@ -145,7 +149,7 @@ function ReadyApp() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const cancelPairing = useAppStore((s) => s.cancelPairing);
-  const { disconnect } = useBridgeConnection();
+  const { disconnect, pressTile } = useBridgeConnection();
 
   return (
     <SafeAreaView
@@ -171,7 +175,9 @@ function ReadyApp() {
       {screen === 'profiles' ? (
         <ProfilesScreen onAdd={() => setScreen('scan')} />
       ) : null}
-      {screen === 'deck' ? <DeckScreen onDisconnect={disconnect} /> : null}
+      {screen === 'deck' ? (
+        <DeckScreen onDisconnect={disconnect} onPressTile={pressTile} />
+      ) : null}
     </SafeAreaView>
   );
 }

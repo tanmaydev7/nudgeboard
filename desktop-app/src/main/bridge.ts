@@ -26,7 +26,7 @@ import {
   type PairingPayload,
   type ServerMessage,
 } from '../shared/protocol';
-import { listDesktopApps, iconsForPaths } from './apps';
+import { listDesktopApps, iconsForPaths, launchDesktopApp } from './apps';
 import {
   emptyTiles,
   loadPersisted,
@@ -407,6 +407,21 @@ const handleReconnect = (
   sendToRenderer();
 };
 
+const handlePress = (
+  socket: WebSocket,
+  message: Extract<ClientMessage, { type: 'press' }>,
+): void => {
+  const item = live.get(socket);
+  if (!item || typeof message.id !== 'string' || message.id.length === 0) {
+    return;
+  }
+  const tile = tilesFor(item.deviceId).find((entry) => entry?.id === message.id);
+  if (!tile) {
+    return;
+  }
+  void launchDesktopApp(tile.path).catch((): void => undefined);
+};
+
 const handleMessage = (socket: WebSocket, raw: string): void => {
   let message: ClientMessage;
   try {
@@ -423,6 +438,10 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   }
   if (message.type === 'hello') {
     handleHello(socket, message, ip);
+    return;
+  }
+  if (message.type === 'press') {
+    handlePress(socket, message);
     return;
   }
   send(socket, { type: 'hello_err', reason: 'Unknown message' });

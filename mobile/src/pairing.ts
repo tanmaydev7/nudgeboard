@@ -48,7 +48,7 @@ export function connectBridge(
     onError: (reason: string) => void;
     onClose: () => void;
   },
-): { close: () => void } {
+): { close: () => void; send: (message: ClientMessage) => void } {
   const ws = new WebSocket(`ws://${host}:${port}`);
   let opened = false;
 
@@ -95,6 +95,11 @@ export function connectBridge(
   return {
     close: () => {
       ws.close();
+    },
+    send: (outgoing: ClientMessage) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(outgoing));
+      }
     },
   };
 }
