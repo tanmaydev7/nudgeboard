@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { DeviceProfile } from '../../shared/ipc-types';
 import { useAppStore } from '../store';
 
-export function DeviceSwitcher() {
+type Props = {
+  onLogout?: () => void;
+};
+
+export function DeviceSwitcher({ onLogout }: Props) {
   const snapshot = useAppStore((s) => s.snapshot);
   const setView = useAppStore((s) => s.setView);
   const setSnapshot = useAppStore((s) => s.setSnapshot);
@@ -43,16 +47,37 @@ export function DeviceSwitcher() {
     <div className="switcher" ref={rootRef}>
       <button
         type="button"
-        className="switcher-trigger"
+        className="device-card"
         onClick={() => setOpen((value) => !value)}
       >
-        <span
-          className={`dot ${active?.connected ? 'on' : 'off'}`}
-        />
-        <span className="switcher-name">
-          {active?.name ?? 'No phone'}
+        <span className="device-glyph" aria-hidden>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+            <rect
+              x="7"
+              y="2"
+              width="10"
+              height="20"
+              rx="2.4"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            />
+            <path
+              d="M10 4.4h4"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
         </span>
-        <span className="caret-down">▾</span>
+        <span className="device-meta">
+          <strong className="device-name">
+            {active?.name ?? 'No phone'}
+          </strong>
+          <em className={`device-status${active?.connected ? ' on' : ''}`}>
+            <span className={`dot ${active?.connected ? 'on' : 'off'}`} />
+            {active?.connected ? 'Connected' : 'Waiting'}
+          </em>
+        </span>
       </button>
       {open ? (
         <div className="switcher-menu">
@@ -69,8 +94,8 @@ export function DeviceSwitcher() {
                 <span>
                   <strong>{device.name}</strong>
                   <em>
-                    {device.connected ? 'Connected' : 'Disconnected'} ·{' '}
-                    {device.fingerprint}
+                    {device.connected ? 'Connected' : 'Disconnected'}
+                    {device.model ? ` · ${device.model}` : ''}
                   </em>
                 </span>
                 <span className={`dot ${device.connected ? 'on' : 'off'}`} />
@@ -80,6 +105,18 @@ export function DeviceSwitcher() {
           <button type="button" className="switcher-add" onClick={addDevice}>
             + Add a phone
           </button>
+          {active && onLogout ? (
+            <button
+              type="button"
+              className="switcher-logout"
+              onClick={() => {
+                setOpen(false);
+                onLogout();
+              }}
+            >
+              Log out
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

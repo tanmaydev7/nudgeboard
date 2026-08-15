@@ -553,7 +553,7 @@ export const startBridge = async (): Promise<void> => {
   });
   ipcMain.handle('bridge:list-apps', () => listDesktopApps());
   ipcMain.handle('bridge:get-app-icons', (_event, paths: string[]) =>
-    iconsForPaths(paths),
+    iconsForPaths(paths, 256),
   );
   ipcMain.handle(
     'bridge:set-tile',

@@ -115,11 +115,11 @@ const createAppMenu = (): void => {
 
 const createWindow = (): void => {
   const win = new BrowserWindow({
-    width: 640,
-    height: 840,
-    minWidth: 520,
-    minHeight: 680,
-    backgroundColor: '#121212',
+    width: 1180,
+    height: 780,
+    minWidth: 960,
+    minHeight: 640,
+    backgroundColor: '#0b0b0c',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,

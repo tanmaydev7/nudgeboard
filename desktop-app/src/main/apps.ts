@@ -486,7 +486,14 @@ const toDataUrl = (image: NativeImage, size: number): string | null => {
   if (image.isEmpty()) {
     return null;
   }
-  const png = image.resize({ width: size, height: size }).toPNG();
+  const { width, height } = image.getSize();
+  const maxEdge = Math.max(width, height, 1);
+  const target = Math.min(size, maxEdge);
+  const ready =
+    width === target && height === target
+      ? image
+      : image.resize({ width: target, height: target, quality: 'best' });
+  const png = ready.toPNG();
   if (png.length === 0) {
     return null;
   }

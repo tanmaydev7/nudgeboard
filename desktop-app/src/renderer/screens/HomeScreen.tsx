@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { DeckTile, DesktopApp } from '../../shared/ipc-types';
-import { GRID_COLUMNS, GRID_SLOTS, useAppStore } from '../store';
+import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS, useAppStore } from '../store';
 import { DeviceSwitcher } from './DeviceSwitcher';
 
 const DRAG_TYPE = 'application/x-nudgeboard-app';
@@ -27,6 +27,13 @@ const parseTile = (raw: string): DeckTile | null => {
   return null;
 };
 
+const tileFromApp = (app: DesktopApp): DeckTile => ({
+  id: app.id,
+  name: app.name,
+  path: app.path,
+  iconPath: app.iconPath,
+});
+
 export function HomeScreen() {
   const snapshot = useAppStore((s) => s.snapshot);
   const setSnapshot = useAppStore((s) => s.setSnapshot);
@@ -42,7 +49,11 @@ export function HomeScreen() {
   loadedIcons.current = icons;
   const [query, setQuery] = useState('');
   const [overSlot, setOverSlot] = useState<number | null>(null);
-  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [dialog, setDialog] = useState<'logout' | 'about' | 'help' | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const isMac = window.api.platform === 'darwin';
+  const filled = tiles.filter(Boolean).length;
 
   useEffect(() => {
     void window.api.listApps().then(setApps);
@@ -134,6 +145,7 @@ export function HomeScreen() {
   const dropOn = (index: number, event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
     setOverSlot(null);
+    setSelectedSlot(null);
     const tile =
       parseTile(event.dataTransfer.getData(DRAG_TYPE)) ??
       parseTile(event.dataTransfer.getData('text/plain'));
@@ -143,13 +155,21 @@ export function HomeScreen() {
     void window.api.setTile(index, tile).then(setSnapshot);
   };
 
+  const assignApp = (app: DesktopApp) => {
+    if (selectedSlot === null) {
+      return;
+    }
+    void window.api.setTile(selectedSlot, tileFromApp(app)).then(setSnapshot);
+    setSelectedSlot(null);
+  };
+
   const logout = () => {
     if (!active) {
       return;
     }
     void window.api.removeDevice(active.id).then((next) => {
       setSnapshot(next);
-      setConfirmLogout(false);
+      setDialog(null);
       if (next.devices.length > 0) {
         return;
       }
@@ -161,136 +181,219 @@ export function HomeScreen() {
   };
 
   return (
-    <section className="panel home">
-      <header className="home-bar">
-        <div className="brand">
-          <span className="brand-mark" />
-          NudgeBoard
+    <section className={`home-shell${isMac ? ' mac' : ''}`}>
+      <aside className="sidebar">
+        <DeviceSwitcher onLogout={() => setDialog('logout')} />
+
+        <div className="pages">
+          <h2>Pages</h2>
+          <div className="page-item active">
+            <div className="page-mini" aria-hidden>
+              {slots.map((slot) => (
+                <span
+                  key={slot}
+                  className={tiles[slot] ? 'filled' : undefined}
+                />
+              ))}
+            </div>
+            <div className="page-copy">
+              <strong>Deck</strong>
+              <em>
+                Page 1 · {filled}/{GRID_SLOTS}
+              </em>
+            </div>
+          </div>
         </div>
-        <div className="home-tools">
-          <DeviceSwitcher />
+
+        <div className="sidebar-foot">
+          <button type="button" onClick={() => setDialog('about')}>
+            <InfoIcon />
+            About NudgeBoard v1.0
+          </button>
+          <button type="button" onClick={() => setDialog('help')}>
+            <HelpIcon />
+            Help &amp; Feedback
+          </button>
+        </div>
+      </aside>
+
+      <div className="stage">
+        <header className="stage-head">
+          <div>
+            <h1>Deck</h1>
+            <p>
+              Click an empty slot to add an app · Drag from below to a slot
+            </p>
+          </div>
+          {active?.connected ? (
+            <span className="live-pill">
+              <span className="dot on" />
+              LIVE
+            </span>
+          ) : (
+            <span className="live-pill dim">Offline</span>
+          )}
+        </header>
+
+        <div className="phone-stage">
+          <div className="phone">
+            <div className="phone-bezel">
+              <div className="phone-screen">
+                <div
+                  className="slot-grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${GRID_ROWS}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {slots.map((slot) => {
+                    const tile = tiles[slot];
+                    const icon = tile ? iconFor(tile.path, tile.id) : undefined;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        className={`slot${tile ? ' filled' : ''}${overSlot === slot ? ' over' : ''}${selectedSlot === slot ? ' selected' : ''}`}
+                        aria-label={tile ? tile.name : 'Add app'}
+                        aria-pressed={selectedSlot === slot}
+                        onClick={() => {
+                          if (tile) {
+                            return;
+                          }
+                          const next = selectedSlot === slot ? null : slot;
+                          setSelectedSlot(next);
+                          if (next !== null) {
+                            searchRef.current?.focus();
+                          }
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          setOverSlot(slot);
+                        }}
+                        onDragLeave={() =>
+                          setOverSlot((current) =>
+                            current === slot ? null : current,
+                          )
+                        }
+                        onDrop={(event) => dropOn(slot, event)}
+                      >
+                        {tile ? (
+                          <>
+                            {icon ? (
+                              <img
+                                alt=""
+                                className="slot-icon"
+                                src={icon}
+                                draggable={false}
+                              />
+                            ) : (
+                              <span className="slot-glyph">
+                                {[...tile.name][0]}
+                              </span>
+                            )}
+                            <span
+                              className="slot-clear"
+                              role="button"
+                              aria-label={`Remove ${tile.name}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void window.api
+                                  .setTile(slot, null)
+                                  .then(setSnapshot);
+                              }}
+                            >
+                              ×
+                            </span>
+                          </>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="page-dots" aria-hidden>
+            <span className="on" />
+          </div>
           {active ? (
-            <button
-              type="button"
-              className="btn-logout"
-              onClick={() => setConfirmLogout(true)}
-            >
-              Log out
-            </button>
+            <p className={`mirror-line${active.connected ? ' live' : ''}`}>
+              <span className={`dot ${active.connected ? 'on' : 'off'}`} />
+              {active.connected
+                ? `Mirroring ${active.name} · landscape`
+                : `${active.name} is saved — waiting to reconnect`}
+            </p>
           ) : null}
         </div>
-      </header>
 
-      {active ? (
-        <p className={`status-line ${active.connected ? 'live' : ''}`}>
-          <span className={`dot ${active.connected ? 'on' : 'off'}`} />
-          {active.connected
-            ? `${active.name} is on the LAN`
-            : `${active.name} is saved — waiting to reconnect`}
-        </p>
-      ) : null}
-
-      <div
-        className="slot-grid"
-        style={{ gridTemplateColumns: `repeat(${GRID_COLUMNS}, 1fr)` }}
-      >
-        {slots.map((slot) => {
-          const tile = tiles[slot];
-          const icon = tile ? iconFor(tile.path, tile.id) : undefined;
-          return (
-            <button
-              key={slot}
-              type="button"
-              className={`slot${tile ? ' filled' : ''}${overSlot === slot ? ' over' : ''}`}
-              aria-label={tile ? tile.name : 'Add tile'}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setOverSlot(slot);
-              }}
-              onDragLeave={() => setOverSlot((current) => (current === slot ? null : current))}
-              onDrop={(event) => dropOn(slot, event)}
-            >
-              {tile ? (
-                <>
-                  {icon ? (
-                    <img alt="" className="slot-icon" src={icon} />
-                  ) : (
-                    <span className="slot-glyph">{[...tile.name][0]}</span>
-                  )}
-                  <span className="slot-name">{tile.name}</span>
-                  <span
-                    className="slot-clear"
-                    role="button"
-                    aria-label={`Remove ${tile.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void window.api.setTile(slot, null).then(setSnapshot);
+        <div className={`library${selectedSlot !== null ? ' picking' : ''}`}>
+          <div className="library-head">
+            <h2>{isMac ? 'Apps on this Mac' : 'Apps on this PC'}</h2>
+            <div className="library-tools">
+              <label className="search-field">
+                <SearchIcon />
+                <input
+                  ref={searchRef}
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search"
+                  aria-label="Search apps"
+                />
+              </label>
+              <span className="app-count">
+                {visible ? String(visible.length) : '…'}
+              </span>
+            </div>
+          </div>
+          <div className="app-list">
+            {apps === null ? (
+              <p className="lead app-list-status">Reading installed apps…</p>
+            ) : apps.length === 0 ? (
+              <p className="lead app-list-status">
+                No apps were found on this computer.
+              </p>
+            ) : visible && visible.length === 0 ? (
+              <p className="lead app-list-status">No apps match that search.</p>
+            ) : (
+              visible?.map((app) => {
+                const icon = iconFor(app.path, app.id);
+                return (
+                  <div
+                    key={app.id}
+                    className="app-row"
+                    title={app.path}
+                    draggable
+                    onClick={() => assignApp(app)}
+                    onDragStart={(event) => {
+                      const payload = JSON.stringify(tileFromApp(app));
+                      event.dataTransfer.setData(DRAG_TYPE, payload);
+                      event.dataTransfer.setData('text/plain', payload);
+                      event.dataTransfer.effectAllowed = 'copy';
                     }}
                   >
-                    ×
-                  </span>
-                </>
-              ) : (
-                '+'
-              )}
-            </button>
-          );
-        })}
+                    <span className="app-tile">
+                      {icon ? (
+                        <img
+                          alt=""
+                          className="app-icon"
+                          src={icon}
+                          draggable={false}
+                        />
+                      ) : (
+                        <span className="app-glyph">{[...app.name][0]}</span>
+                      )}
+                    </span>
+                    <span className="app-name">{app.name}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="app-list-header">
-        <h2>Apps on this PC</h2>
-        <span>{visible ? String(visible.length) : '…'}</span>
-      </div>
-      <input
-        className="app-search"
-        type="search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search apps"
-        aria-label="Search apps"
-      />
-      <div className="app-list">
-        {apps === null ? (
-          <p className="lead app-list-status">Reading installed apps…</p>
-        ) : apps.length === 0 ? (
-          <p className="lead app-list-status">No apps were found on this computer.</p>
-        ) : visible && visible.length === 0 ? (
-          <p className="lead app-list-status">No apps match that search.</p>
-        ) : (
-          visible?.map((app) => {
-            const icon = iconFor(app.path, app.id);
-            return (
-              <div
-                key={app.id}
-                className="app-row"
-                title={app.path}
-                draggable
-                onDragStart={(event) => {
-                  const payload = JSON.stringify({
-                    id: app.id,
-                    name: app.name,
-                    path: app.path,
-                    iconPath: app.iconPath,
-                  });
-                  event.dataTransfer.setData(DRAG_TYPE, payload);
-                  event.dataTransfer.setData('text/plain', payload);
-                  event.dataTransfer.effectAllowed = 'copy';
-                }}
-              >
-                {icon ? (
-                  <img alt="" className="app-icon" src={icon} />
-                ) : (
-                  <span className="app-glyph">{[...app.name][0]}</span>
-                )}
-                <span className="app-name">{app.name}</span>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {confirmLogout && active ? (
+      {dialog === 'logout' && active ? (
         <div className="modal-backdrop">
           <div className="modal" role="dialog" aria-modal="true">
             <h2>Log out {active.name}?</h2>
@@ -302,7 +405,7 @@ export function HomeScreen() {
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setConfirmLogout(false)}
+                onClick={() => setDialog(null)}
               >
                 Cancel
               </button>
@@ -313,6 +416,93 @@ export function HomeScreen() {
           </div>
         </div>
       ) : null}
+
+      {dialog === 'about' ? (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true">
+            <h2>NudgeBoard v1.0</h2>
+            <p>
+              A Stream Deck-style companion for iPhone and Android. Pair a
+              phone, then drop apps onto the deck to launch them from your
+              pocket.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDialog(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {dialog === 'help' ? (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true">
+            <h2>Help &amp; Feedback</h2>
+            <p>
+              Click an empty slot, then click an app below — or drag an app
+              onto the phone. Hover a filled slot and press × to clear it.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDialog(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="6.2" stroke="#5b9dff" strokeWidth="1.8" />
+      <path
+        d="M16 16.6 20 20.5"
+        stroke="#5b9dff"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M12 11.2v5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="8.2" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M9.6 9.4a2.4 2.4 0 1 1 3.3 2.2c-.7.4-1.1.9-1.1 1.7v.3"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="16.4" r="0.8" fill="currentColor" />
+    </svg>
   );
 }
