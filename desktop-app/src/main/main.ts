@@ -5,6 +5,7 @@ import {
   session,
   type MenuItemConstructorOptions,
 } from 'electron';
+import { startBridge, stopBridge } from './bridge';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -114,8 +115,11 @@ const createAppMenu = (): void => {
 
 const createWindow = (): void => {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 720,
+    height: 760,
+    minWidth: 560,
+    minHeight: 560,
+    backgroundColor: '#0f1115',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -128,9 +132,10 @@ const createWindow = (): void => {
   void win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 };
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   applyContentSecurityPolicy();
   createAppMenu();
+  await startBridge();
   createWindow();
 
   app.on('activate', () => {
@@ -144,4 +149,8 @@ app.on('window-all-closed', () => {
   if (!isMac) {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  void stopBridge();
 });

@@ -12,6 +12,8 @@
   "dependencies": {
     "react": "19.2.3",
     "react-native": "0.87.0",
+    "react-native-data-scanner": "^0.1.2",
+    "react-native-nitro-modules": "^0.36.5",
     "react-native-safe-area-context": "^5.5.2"
   },
   "devDependencies": {
