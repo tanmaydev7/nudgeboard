@@ -64,7 +64,13 @@ export function ScanScreen({ onBack }: Props) {
       <View style={styles.top}>
         <Text style={styles.brand}>NudgeBoard</Text>
       </View>
-      <Text style={styles.title}>Point at the code on your PC</Text>
+      <View style={styles.heading}>
+        <Text style={styles.title}>Point at the code on your PC</Text>
+        <Text style={styles.hint}>
+          Keep your phone and PC on the same Wi-Fi while you scan and use the
+          app.
+        </Text>
+      </View>
       <View style={styles.finder} collapsable={false}>
         <View style={styles.finderClip}>
           {hasPermission && device ? (
@@ -135,11 +141,17 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontWeight: '600',
   },
+  heading: {
+    gap: spacing.sm,
+  },
   title: {
     color: palette.text,
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -0.6,
+  },
+  hint: {
+    color: palette.muted,
   },
   finder: {
     flex: 1,

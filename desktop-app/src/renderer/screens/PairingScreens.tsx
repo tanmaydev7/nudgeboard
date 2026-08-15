@@ -22,7 +22,7 @@ export function QrScreen() {
   const snapshot = useAppStore((s) => s.snapshot);
   const setSnapshot = useAppStore((s) => s.setSnapshot);
   const pairing = snapshot?.pairing;
-  const remaining = useCountdown(pairing?.expiresAt);
+  const { remaining, expired } = useCountdown(pairing?.expiresAt);
   const [manual, setManual] = useState(false);
   const hasDevices = (snapshot?.devices.length ?? 0) > 0;
 
@@ -40,20 +40,24 @@ export function QrScreen() {
       ) : null}
       <StepProgress step={1} total={2} />
       <h1>Scan this with the NudgeBoard app.</h1>
+      <p className="hint">
+        Keep your phone and this PC on the same Wi-Fi while you scan and use
+        the app.
+      </p>
       {pairing ? (
         <div className="qr-wrap">
           <img alt="Pairing QR code" src={pairing.qrDataUrl} />
           <span className="qr-badge" />
         </div>
       ) : null}
-      <p className="timer-row">
-        expires in {remaining}
+      <p className={`timer-row${expired ? ' expired' : ''}`}>
+        {expired ? 'Expired' : `expires in ${remaining}`}
         <button
           type="button"
           className="link"
           onClick={() => void window.api.generateQr().then(setSnapshot)}
         >
-          · Regenerate
+          &nbsp;· Regenerate
         </button>
       </p>
       <div className="manual-bar">
@@ -78,7 +82,7 @@ export function OtpScreen() {
   const setSnapshot = useAppStore((s) => s.setSnapshot);
   const setView = useAppStore((s) => s.setView);
   const pairing = snapshot?.pairing;
-  const remaining = useCountdown(pairing?.expiresAt);
+  const { remaining, expired } = useCountdown(pairing?.expiresAt);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -108,6 +112,10 @@ export function OtpScreen() {
       </button>
       <StepProgress step={2} total={2} />
       <h1>Enter the 6 digits from your phone.</h1>
+      <p className="hint">
+        Keep your phone and this PC on the same Wi-Fi while you pair and use
+        the app.
+      </p>
       {pairing?.pending ? (
         <p className="lead">
           {pairing.pending.name} · fingerprint {pairing.pending.fingerprint}
@@ -120,8 +128,8 @@ export function OtpScreen() {
           setOtp(next);
         }}
       />
-      <div className="timer-row split">
-        <span>code expires in {remaining}</span>
+      <div className={`timer-row split${expired ? ' expired' : ''}`}>
+        <span>{expired ? 'Expired' : `code expires in ${remaining}`}</span>
         <button
           type="button"
           className="link"

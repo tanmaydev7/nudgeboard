@@ -11,7 +11,7 @@ type Props = {
 
 export function PairCodeScreen({ onCancel }: Props) {
   const pairing = useAppStore((s) => s.pairing);
-  const remaining = useCountdown(pairing?.expiresAt);
+  const { remaining, expired } = useCountdown(pairing?.expiresAt);
   const error = useAppStore((s) => s.error);
   const digits = (pairing?.otp ?? '').padEnd(6, ' ').slice(0, 6).split('');
   const hostName = pairing?.payload.name ?? 'desktop';
@@ -39,8 +39,10 @@ export function PairCodeScreen({ onCancel }: Props) {
           <Text style={styles.fingerprint}>{pairing.payload.fingerprint}</Text>
         </View>
       ) : null}
-      <Text style={styles.hint}>
-        Only type these on a computer you own. The code dies in {remaining}.
+      <Text style={expired ? styles.expired : styles.hint}>
+        {expired
+          ? 'This code expired. Scan a new QR on your PC.'
+          : `Stay on the same Wi-Fi as this PC. Only type these on a computer you own. The code dies in ${remaining}.`}
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Pressable
@@ -115,6 +117,9 @@ const styles = StyleSheet.create({
   },
   hint: {
     color: palette.muted,
+  },
+  expired: {
+    color: '#FF6B6B',
   },
   error: {
     color: '#FF6B6B',

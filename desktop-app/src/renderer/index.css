@@ -67,8 +67,34 @@ p {
   padding-top: 12px;
 }
 
-.shell.mac.home {
+.shell.mac.home,
+.shell.win.home {
   padding-top: 0;
+}
+
+.titlebar {
+  position: fixed;
+  top: env(titlebar-area-y, 0px);
+  left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%);
+  height: env(titlebar-area-height, 36px);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+  z-index: 40;
+}
+
+.titlebar-name {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+
+.shell.win:not(.home) {
+  padding-top: env(titlebar-area-height, 36px);
 }
 
 .shell:not(.home) {
@@ -92,7 +118,8 @@ p {
   background: var(--bg);
 }
 
-.home-shell.mac {
+.home-shell.mac,
+.home-shell.win {
   padding-top: 0;
 }
 
@@ -108,6 +135,10 @@ p {
 
 .home-shell.mac .sidebar {
   padding-top: 52px;
+}
+
+.home-shell.win .sidebar {
+  padding-top: calc(env(titlebar-area-height, 36px) + 0.55rem);
 }
 
 .sidebar button,
@@ -283,6 +314,10 @@ p {
 
 .home-shell.mac .stage {
   padding-top: 46px;
+}
+
+.home-shell.win .stage {
+  padding-top: calc(env(titlebar-area-height, 36px) + 0.75rem);
 }
 
 .stage-head {
@@ -602,6 +637,10 @@ p {
 .timer-row.split {
   display: flex;
   justify-content: space-between;
+}
+
+.timer-row.expired {
+  color: #f87171;
 }
 
 .link {

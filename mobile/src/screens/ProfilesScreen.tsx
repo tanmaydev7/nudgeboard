@@ -38,8 +38,7 @@ export function ProfilesScreen({ onAdd }: Props) {
       </View>
       <Text style={styles.title}>Your computers</Text>
       <Text style={styles.sub}>
-        Pick one to make it active. Connected and disconnected PCs stay in this
-        list.
+        Pick one to make it active. Stay on the same Wi-Fi as your PC.
       </Text>
       <ScrollView contentContainerStyle={styles.list}>
         {profiles.map((profile) => {

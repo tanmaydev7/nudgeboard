@@ -34,11 +34,22 @@ const applyContentSecurityPolicy = (): void => {
   });
 };
 
-const createAppMenu = (): void => {
-  const template: MenuItemConstructorOptions[] = [];
+const TITLE_BAR_HEIGHT = 36;
 
-  if (isMac) {
-    template.push({
+const createAppMenu = (): void => {
+  if (!isMac) {
+    if (!isDev) {
+      Menu.setApplicationMenu(null);
+      return;
+    }
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([{ role: 'viewMenu' }]),
+    );
+    return;
+  }
+
+  const template: MenuItemConstructorOptions[] = [
+    {
       label: app.name,
       submenu: [
         { role: 'about' },
@@ -51,8 +62,8 @@ const createAppMenu = (): void => {
         { type: 'separator' },
         { role: 'quit' },
       ],
-    });
-  }
+    },
+  ];
 
   template.push(
     {
@@ -120,7 +131,17 @@ const createWindow = (): void => {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#0b0b0c',
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? {}
+      : {
+          titleBarOverlay: {
+            color: '#0b0b0c',
+            symbolColor: '#d4d4d8',
+            height: TITLE_BAR_HEIGHT,
+          },
+          autoHideMenuBar: true,
+        }),
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       contextIsolation: true,
@@ -128,6 +149,10 @@ const createWindow = (): void => {
       sandbox: true,
     },
   });
+
+  if (!isMac) {
+    win.setMenuBarVisibility(false);
+  }
 
   void win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 };

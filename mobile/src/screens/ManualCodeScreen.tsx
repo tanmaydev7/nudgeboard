@@ -32,6 +32,9 @@ export function ManualCodeScreen() {
     <View style={styles.content}>
       <Text style={styles.brand}>NudgeBoard</Text>
       <Text style={styles.title}>Paste the code from your PC</Text>
+      <Text style={styles.hint}>
+        Keep your phone and PC on the same Wi-Fi while you pair and use the app.
+      </Text>
       <TextInput
         value={code}
         onChangeText={(next) => {
@@ -76,6 +79,9 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
     letterSpacing: -0.5,
+  },
+  hint: {
+    color: palette.muted,
   },
   input: {
     minHeight: 120,

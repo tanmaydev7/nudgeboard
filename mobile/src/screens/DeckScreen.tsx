@@ -97,6 +97,7 @@ export function DeckScreen({ onDisconnect, onPressTile }: Props) {
             {live ? '• linked' : '• not connected'}
           </Text>
         </Pressable>
+        <Text style={styles.hint}>Stay on the same Wi-Fi as your PC.</Text>
         <View style={styles.carousel}>
           <View style={styles.pager} onLayout={onLayout}>
             {box ? (
@@ -179,6 +180,10 @@ const styles = StyleSheet.create({
   offline: {
     color: '#f87171',
     fontWeight: '700',
+  },
+  hint: {
+    color: palette.muted,
+    fontSize: 13,
   },
   pressed: {
     opacity: 0.85,

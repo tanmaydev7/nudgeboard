@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatCountdown } from '../shared/protocol';
 
-export const useCountdown = (expiresAt: number | null | undefined): string => {
+export const useCountdown = (expiresAt: number | null | undefined) => {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -13,7 +13,8 @@ export const useCountdown = (expiresAt: number | null | undefined): string => {
   }, [expiresAt]);
 
   if (!expiresAt) {
-    return '00:00';
+    return { remaining: formatCountdown(0), expired: false };
   }
-  return formatCountdown(expiresAt - now);
+  const ms = expiresAt - now;
+  return { remaining: formatCountdown(ms), expired: ms <= 0 };
 };

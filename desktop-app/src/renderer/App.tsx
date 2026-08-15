@@ -37,7 +37,12 @@ const App = () => {
   }, [snapshot?.pairing?.step, snapshot?.devices.length, setView]);
 
   return (
-    <main className={isMac ? `shell mac ${view}` : `shell ${view}`}>
+    <main className={isMac ? `shell mac ${view}` : `shell win ${view}`}>
+      {isMac ? null : (
+        <div className="titlebar">
+          <span className="titlebar-name">NudgeBoard</span>
+        </div>
+      )}
       {view === 'qr' ? <QrScreen /> : null}
       {view === 'otp' ? <OtpScreen /> : null}
       {view === 'home' ? <HomeScreen /> : null}

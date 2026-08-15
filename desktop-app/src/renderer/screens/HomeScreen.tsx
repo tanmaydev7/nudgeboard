@@ -211,7 +211,7 @@ export function HomeScreen() {
   };
 
   return (
-    <section className={`home-shell${isMac ? ' mac' : ''}`}>
+    <section className={`home-shell${isMac ? ' mac' : ' win'}`}>
       <aside className="sidebar">
         <DeviceSwitcher onLogout={() => setDialog('logout')} />
 
@@ -292,7 +292,7 @@ export function HomeScreen() {
             <h1>Deck</h1>
             <p>
               Page {activePage + 1} of {pages} · Click an empty slot or drag an
-              app onto it
+              app onto it. Stay on the same Wi-Fi as your phone.
             </p>
           </div>
           {active?.connected ? (
@@ -538,7 +538,8 @@ export function HomeScreen() {
             <p>
               Click an empty slot, then click an app below — or drag an app
               onto the phone. Hover a filled slot and press × to clear it. Add
-              more pages in the sidebar; swipe between them on the phone.
+              more pages in the sidebar; swipe between them on the phone. Your
+              phone and this PC must stay on the same Wi-Fi.
             </p>
             <div className="modal-actions">
               <button
