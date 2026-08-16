@@ -1079,12 +1079,800 @@ p {
 }
 
 .app-list::-webkit-scrollbar,
-.page-list::-webkit-scrollbar {
+.page-list::-webkit-scrollbar,
+.utilities-list::-webkit-scrollbar,
+.custom-flows-container::-webkit-scrollbar,
+.flow-modal-body::-webkit-scrollbar {
   width: 8px;
 }
 
 .app-list::-webkit-scrollbar-thumb,
-.page-list::-webkit-scrollbar-thumb {
+.page-list::-webkit-scrollbar-thumb,
+.utilities-list::-webkit-scrollbar-thumb,
+.custom-flows-container::-webkit-scrollbar-thumb,
+.flow-modal-body::-webkit-scrollbar-thumb {
   background: #2a2a30;
   border-radius: 99px;
 }
+
+/* -------------------------------------------------------------
+   3-Tab Library Interface
+------------------------------------------------------------- */
+.library-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #121214;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid #232328;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.75rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tab-btn:hover {
+  color: #e4e4e7;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-btn.active {
+  background: #27272e;
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+}
+
+.tab-btn.active .tab-badge {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.btn-create-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  border: 0;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.btn-create-flow:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+/* Utilities Tab */
+.utilities-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px 8px;
+  overflow: auto;
+  padding: 4px 2px 0.5rem;
+  min-height: 0;
+}
+
+.utility-tile {
+  background: linear-gradient(180deg, #242b38, #161a22);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.utility-row:hover .utility-tile {
+  background: linear-gradient(180deg, #2d3748, #1e2430);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+/* Custom Flows Tab */
+.custom-flows-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 2px 0.5rem;
+}
+
+.custom-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.2rem 1.5rem;
+  background: #141417;
+  border: 1px dashed #282830;
+  border-radius: 16px;
+  margin: 0.5rem 0;
+}
+
+.custom-empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #202026;
+  color: #818cf8;
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.85rem;
+}
+
+.custom-empty-state h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #f4f4f5;
+}
+
+.custom-empty-state p {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  max-width: 360px;
+  line-height: 1.45;
+}
+
+.custom-empty-btn {
+  font-size: 0.85rem;
+  padding: 0 1.25rem;
+  min-height: 40px;
+}
+
+.custom-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.custom-flow-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #17171a;
+  border: 1px solid #282830;
+  border-radius: 14px;
+  padding: 0.65rem 0.75rem;
+  cursor: grab;
+  user-select: none;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.custom-flow-card:hover {
+  background: #1d1d22;
+  border-color: #3b3b46;
+  transform: translateY(-1px);
+}
+
+.library.picking .custom-flow-card {
+  cursor: pointer;
+}
+
+.flow-card-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #23232b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.flow-card-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.flow-card-glyph {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #a5b4fc;
+}
+
+.flow-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.flow-card-name {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #f4f4f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-card-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.flow-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.custom-flow-card:hover .flow-card-actions {
+  opacity: 1;
+}
+
+.btn-flow-action {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.btn-flow-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.btn-flow-action.delete:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+/* -------------------------------------------------------------
+   Custom Flow Builder Modal
+------------------------------------------------------------- */
+.custom-flow-backdrop {
+  z-index: 50;
+}
+
+.custom-flow-modal {
+  width: min(620px, 95vw);
+  max-height: 88vh;
+  background: #161619;
+  border: 1px solid #2e2e38;
+  border-radius: 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+}
+
+.flow-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem 1rem;
+  border-bottom: 1px solid #23232a;
+  position: relative;
+}
+
+.flow-modal-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.flow-modal-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.flow-error-banner {
+  margin: 0.75rem 1.5rem 0;
+  padding: 0.65rem 0.9rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  color: #fca5a5;
+  font-size: 0.8rem;
+}
+
+.flow-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.flow-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.flow-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flow-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.flow-label span,
+.flow-label-text {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a1a1aa;
+}
+
+.flow-step-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.flow-input {
+  background: #111114;
+  border: 1px solid #2a2a34;
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  color: #ffffff;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.flow-input:focus {
+  border-color: #6366f1;
+}
+
+.flow-icon-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.flow-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.flow-icon-preview {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: #111114;
+  border: 1px solid #2a2a34;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.preview-img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.preview-fallback {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #818cf8;
+}
+
+.flow-icon-controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.flow-icon-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #2a2a34;
+  background: #1c1c22;
+  color: #d4d4d8;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.preset-icon-btn img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.preset-icon-btn:hover {
+  background: #272730;
+  border-color: #4b4b58;
+}
+
+.preset-icon-btn.selected {
+  background: #312e81;
+  border-color: #6366f1;
+}
+
+.btn-browse-icon,
+.btn-browse-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  background: #202028;
+  border: 1px solid #2f2f3c;
+  border-radius: 8px;
+  color: #d4d4d8;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.15s;
+}
+
+.btn-browse-icon:hover,
+.btn-browse-file:hover {
+  background: #2b2b36;
+}
+
+/* Steps list */
+.flow-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.flow-step-card {
+  background: #1b1b22;
+  border: 1px solid #2a2a36;
+  border-radius: 14px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.step-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.step-badge {
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  color: #818cf8;
+  letter-spacing: 0.05em;
+  background: rgba(99, 102, 241, 0.15);
+  padding: 3px 7px;
+  border-radius: 6px;
+}
+
+.step-type-toggles {
+  display: flex;
+  background: #121216;
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid #242430;
+}
+
+.type-toggle-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.type-toggle-btn.active {
+  background: #312e81;
+  color: #ffffff;
+}
+
+.step-reorder {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.step-btn-mini {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 0;
+  background: #282834;
+  color: #a1a1aa;
+  font-size: 0.85rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.step-btn-mini:hover {
+  background: #363646;
+  color: #ffffff;
+}
+
+.step-btn-mini.delete:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+/* Step configs */
+.step-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.path-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.path-input {
+  flex: 1;
+}
+
+.args-input-row {
+  display: flex;
+}
+
+.args-input {
+  flex: 1;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.quick-presets-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 0.2rem;
+}
+
+.preset-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.chip-preset {
+  border: 1px solid #2b2b38;
+  background: #141418;
+  color: #d4d4d8;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.chip-preset:hover {
+  background: #22222a;
+  border-color: #434354;
+  color: #ffffff;
+}
+
+.chip-preset.active {
+  background: #312e81;
+  border-color: #6366f1;
+  color: #ffffff;
+}
+
+/* Shortcut recorder */
+.shortcut-recorder-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shortcut-keys-display {
+  flex: 1;
+  min-height: 38px;
+  background: #111114;
+  border: 1px solid #2a2a34;
+  border-radius: 10px;
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+}
+
+.shortcut-keys-display.recording {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.recording-prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #f87171;
+  font-style: italic;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse-rec 1s infinite alternate;
+}
+
+@keyframes pulse-rec {
+  from { opacity: 0.4; }
+  to { opacity: 1; transform: scale(1.15); }
+}
+
+.key-badges {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.key-badge {
+  background: #252530;
+  border: 1px solid #3c3c4a;
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.no-keys {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.btn-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #202028;
+  border: 1px solid #333342;
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-record:hover {
+  background: #2b2b36;
+}
+
+.btn-record.is-recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* Delay config */
+.delay-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #d4d4d8;
+}
+
+.delay-input {
+  width: 90px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.delay-sec {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+/* Add step toolbar */
+.flow-add-step-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+
+.btn-add-step {
+  background: #141418;
+  border: 1px dashed #2f2f3d;
+  color: #a1a1aa;
+  border-radius: 9px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-add-step:hover {
+  background: #1d1d24;
+  border-color: #6366f1;
+  color: #ffffff;
+}
+
+/* Modal footer */
+.flow-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding: 1rem 1.5rem;
+  background: #131316;
+  border-top: 1px solid #23232a;
+}
+

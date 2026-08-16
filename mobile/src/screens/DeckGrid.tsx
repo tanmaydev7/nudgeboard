@@ -11,6 +11,64 @@ type Props = {
   onPressTile?: (id: string) => void;
 };
 
+const isBitmapIcon = (uri?: string): boolean => {
+  if (!uri) {
+    return false;
+  }
+  return (
+    uri.startsWith('data:image/png') ||
+    uri.startsWith('data:image/jpeg') ||
+    uri.startsWith('data:image/jpg') ||
+    uri.startsWith('data:image/webp') ||
+    uri.startsWith('http://') ||
+    uri.startsWith('https://') ||
+    uri.startsWith('file:')
+  );
+};
+
+type FilledTileProps = {
+  tile: DeckTileView;
+  tileSize: number;
+  iconSize: number;
+  onPressTile?: (id: string) => void;
+};
+
+function FilledTile({ tile, tileSize, iconSize, onPressTile }: FilledTileProps) {
+  const [iconFailed, setIconFailed] = useState(false);
+  const glyph = [...tile.name][0];
+  const showImage = isBitmapIcon(tile.icon) && !iconFailed;
+
+  return (
+    <Pressable
+      onPress={() => onPressTile?.(tile.id)}
+      style={({ pressed }) => [
+        styles.tile,
+        styles.filled,
+        { width: tileSize, height: tileSize },
+        pressed ? styles.pressed : null,
+      ]}
+    >
+      {showImage ? (
+        <Image
+          source={{ uri: tile.icon ?? '' }}
+          style={{ width: iconSize, height: iconSize }}
+          resizeMode="contain"
+          onError={() => setIconFailed(true)}
+        />
+      ) : (
+        <View
+          style={[styles.glyphWrap, { width: iconSize, height: iconSize }]}
+        >
+          <Text style={styles.glyph}>{glyph}</Text>
+        </View>
+      )}
+      <Text style={styles.name} numberOfLines={1}>
+        {tile.name}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function DeckGrid({ tiles, onPressTile }: Props) {
   const [box, setBox] = useState<{ width: number; height: number } | undefined>(
     undefined,
@@ -46,49 +104,24 @@ export function DeckGrid({ tiles, onPressTile }: Props) {
       {tileSize > 0 ? (
         <View style={[styles.grid, { width: tileSize * GRID_COLUMNS + GAP * (GRID_COLUMNS - 1) }]}>
           {slots.map((tile, index) => {
-            const glyph = tile ? [...tile.name][0] : '+';
-            const sizeStyle = { width: tileSize, height: tileSize };
             if (!tile) {
               return (
                 <View
                   key={`empty-${index}`}
-                  style={[styles.tile, sizeStyle]}
+                  style={[styles.tile, { width: tileSize, height: tileSize }]}
                 >
                   <Text style={styles.plus}>+</Text>
                 </View>
               );
             }
             return (
-              <Pressable
+              <FilledTile
                 key={`${tile.id}-${index}`}
-                onPress={() => onPressTile?.(tile.id)}
-                style={({ pressed }) => [
-                  styles.tile,
-                  styles.filled,
-                  sizeStyle,
-                  pressed ? styles.pressed : null,
-                ]}
-              >
-                {tile.icon ? (
-                  <Image
-                    source={{ uri: tile.icon }}
-                    style={{ width: iconSize, height: iconSize }}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.glyphWrap,
-                      { width: iconSize, height: iconSize },
-                    ]}
-                  >
-                    <Text style={styles.glyph}>{glyph}</Text>
-                  </View>
-                )}
-                <Text style={styles.name} numberOfLines={1}>
-                  {tile.name}
-                </Text>
-              </Pressable>
+                tile={tile}
+                tileSize={tileSize}
+                iconSize={iconSize}
+                onPressTile={onPressTile}
+              />
             );
           })}
         </View>

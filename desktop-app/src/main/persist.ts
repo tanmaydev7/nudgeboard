@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
-import { type DeckTile } from '../shared/ipc-types';
+import { type CustomFlow, type DeckTile } from '../shared/ipc-types';
 import { formatFingerprint, type DevicePlatform } from '../shared/protocol';
 
 export type StoredDevice = {
@@ -22,6 +22,7 @@ export type PersistedState = {
   devices: StoredDevice[];
   activeDeviceId: string | null;
   tilesByDevice: Record<string, Array<DeckTile | null>>;
+  customFlows: CustomFlow[];
 };
 
 export const emptyState = (): PersistedState => ({
@@ -29,6 +30,7 @@ export const emptyState = (): PersistedState => ({
   devices: [],
   activeDeviceId: null,
   tilesByDevice: {},
+  customFlows: [],
 });
 
 export const persistPath = (): string =>
@@ -48,6 +50,7 @@ export const loadPersisted = (): PersistedState => {
         raw.tilesByDevice && typeof raw.tilesByDevice === 'object'
           ? raw.tilesByDevice
           : {},
+      customFlows: Array.isArray(raw.customFlows) ? raw.customFlows : [],
     };
   } catch {
     return emptyState();
@@ -56,4 +59,23 @@ export const loadPersisted = (): PersistedState => {
 
 export const savePersisted = (state: PersistedState): void => {
   writeFileSync(persistPath(), JSON.stringify(state, null, 2), 'utf8');
+};
+
+export const forgetDevice = (
+  state: PersistedState,
+  deviceId: string,
+): PersistedState => {
+  const devices = state.devices.filter((device) => device.id !== deviceId);
+  const tilesByDevice = { ...state.tilesByDevice };
+  delete tilesByDevice[deviceId];
+  return {
+    ...state,
+    devices,
+    tilesByDevice,
+    customFlows: devices.length === 0 ? [] : (state.customFlows ?? []),
+    activeDeviceId:
+      state.activeDeviceId === deviceId
+        ? (devices[0]?.id ?? null)
+        : state.activeDeviceId,
+  };
 };

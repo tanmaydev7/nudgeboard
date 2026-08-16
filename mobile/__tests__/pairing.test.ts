@@ -44,7 +44,7 @@ describe('pairing protocol', () => {
   });
 
   it('rejects a payload without a fingerprint', () => {
-    const { fingerprint: _fingerprint, ...rest } = payload;
+    const rest = { ...payload, fingerprint: undefined };
     expect(() => parsePairingPayload(JSON.stringify(rest))).toThrow(
       'Not a Nudgeboard pairing code',
     );

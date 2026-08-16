@@ -26,10 +26,11 @@ export type ProfileDrawerHandle = {
 
 type Props = {
   onDisconnect: () => void;
+  onLogout?: () => void;
 };
 
 export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
-  function ProfileDrawer({ onDisconnect }, ref) {
+  function ProfileDrawer({ onDisconnect, onLogout }, ref) {
     const sheetRef = useRef<BottomSheet>(null);
     const profiles = useAppStore((s) => s.profiles);
     const activeFingerprint = useAppStore((s) => s.activeFingerprint);
@@ -82,7 +83,11 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
         return;
       }
       sheetRef.current?.collapse();
-      onDisconnect();
+      if (onLogout) {
+        onLogout();
+      } else {
+        onDisconnect();
+      }
       removeProfile(activeFingerprint);
     };
 
@@ -153,7 +158,7 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
             <View style={styles.rowCopy}>
               <Text style={styles.rowLabel}>Log out</Text>
               <Text style={styles.rowMeta}>
-                Remove this computer from the phone
+                Unpair and clear the deck and custom actions
               </Text>
             </View>
             <Text style={styles.chevron}>›</Text>

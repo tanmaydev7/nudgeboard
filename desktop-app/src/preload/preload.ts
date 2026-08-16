@@ -19,12 +19,26 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('bridge:get-app-icons', paths) as Promise<
       Record<string, string>
     >,
+  getUtilityIcons: () =>
+    ipcRenderer.invoke('bridge:get-utility-icons') as Promise<
+      Record<string, string>
+    >,
+  getPresetIcons: () =>
+    ipcRenderer.invoke('bridge:get-preset-icons') as Promise<
+      Record<string, string>
+    >,
   setTile: (index, tile) =>
     ipcRenderer.invoke('bridge:set-tile', index, tile) as Promise<BridgeSnapshot>,
   addPage: () => ipcRenderer.invoke('bridge:add-page') as Promise<BridgeSnapshot>,
   removePage: (page) =>
     ipcRenderer.invoke('bridge:remove-page', page) as Promise<BridgeSnapshot>,
   removeDevice: (id) => ipcRenderer.invoke('bridge:remove-device', id),
+  saveCustomFlow: (flow) =>
+    ipcRenderer.invoke('bridge:save-custom-flow', flow) as Promise<BridgeSnapshot>,
+  deleteCustomFlow: (id) =>
+    ipcRenderer.invoke('bridge:delete-custom-flow', id) as Promise<BridgeSnapshot>,
+  browseFile: (filter) =>
+    ipcRenderer.invoke('bridge:browse-file', filter),
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {
       callback(snapshot);

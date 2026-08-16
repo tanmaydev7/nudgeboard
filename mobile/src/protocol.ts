@@ -45,6 +45,9 @@ export type ClientMessage =
   | {
       type: 'press';
       id: string;
+    }
+  | {
+      type: 'logout';
     };
 
 export type DeckTileView = {
@@ -66,6 +69,7 @@ export type HelloOk = {
 export type ServerMessage =
   | HelloOk
   | { type: 'hello_err'; reason: string }
+  | { type: 'logged_out' }
   | {
       type: 'deck';
       columns: number;

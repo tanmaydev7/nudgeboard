@@ -21,10 +21,11 @@ const palette = colors.dark;
 
 type Props = {
   onDisconnect: () => void;
+  onLogout?: () => void;
   onPressTile?: (id: string) => void;
 };
 
-export function DeckScreen({ onDisconnect, onPressTile }: Props) {
+export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
   const connectedName = useAppStore((s) => s.connectedName);
   const profiles = useAppStore((s) => s.profiles);
   const activeFingerprint = useAppStore((s) => s.activeFingerprint);
@@ -138,7 +139,11 @@ export function DeckScreen({ onDisconnect, onPressTile }: Props) {
           </View>
         </View>
       </View>
-      <ProfileDrawer ref={drawerRef} onDisconnect={onDisconnect} />
+      <ProfileDrawer
+        ref={drawerRef}
+        onDisconnect={onDisconnect}
+        onLogout={onLogout}
+      />
     </View>
   );
 }

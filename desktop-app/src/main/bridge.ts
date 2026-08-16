@@ -1,7 +1,9 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { hostname, networkInterfaces } from 'os';
-import { BrowserWindow, ipcMain } from 'electron';
+import { basename } from 'path';
+import { readFile } from 'fs/promises';
+import { BrowserWindow, dialog, ipcMain, nativeImage } from 'electron';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
@@ -12,6 +14,8 @@ import {
   emptyTiles,
   normalizeTiles,
   type BridgeSnapshot,
+  type BrowseFileResult,
+  type CustomFlow,
   type DeckTile,
   type DeviceProfile,
   type PairingSession,
@@ -30,8 +34,18 @@ import {
   type PairingPayload,
   type ServerMessage,
 } from '../shared/protocol';
-import { listDesktopApps, iconsForPaths, launchDesktopApp } from './apps';
+import { listDesktopApps, iconsForPaths, iconDataUrl } from './apps';
+import { executeTile } from './executor';
 import {
+  closeIconRasterizer,
+  ensurePngDataUrl,
+  getIconForPresetOrUtility,
+  getPresetIconDataUrls,
+  getUtilityIconDataUrls,
+  renderSvgToPngDataUrl,
+} from './icons';
+import {
+  forgetDevice,
   loadPersisted,
   savePersisted,
   type PersistedState,
@@ -74,6 +88,7 @@ let persisted: PersistedState = {
   devices: [],
   activeDeviceId: null,
   tilesByDevice: {},
+  customFlows: [],
 };
 let session: Session | null = null;
 let lastPairedId: string | null = null;
@@ -209,6 +224,7 @@ const snapshot = (): BridgeSnapshot => ({
   activeDeviceId: persisted.activeDeviceId,
   lastPairedId,
   tiles: tilesFor(persisted.activeDeviceId),
+  customFlows: persisted.customFlows ?? [],
 });
 
 const sendToRenderer = (): void => {
@@ -230,10 +246,96 @@ const pushDeck = (deviceId: string): void => {
     return;
   }
   const tiles = tilesFor(deviceId);
-  const paths = tiles.flatMap((tile) =>
-    tile ? [tile.iconPath ?? tile.path] : [],
-  );
-  void iconsForPaths(paths, 256).then((icons) => {
+  const appPaths: string[] = [];
+  for (const tile of tiles) {
+    if (!tile) {
+      continue;
+    }
+    if (
+      tile.tileType === 'utility' ||
+      tile.utilityAction ||
+      tile.path.startsWith('utility:')
+    ) {
+      continue;
+    }
+    if (
+      tile.tileType === 'custom' ||
+      tile.customFlow ||
+      tile.path.startsWith('custom:')
+    ) {
+      if (tile.customFlow?.iconPath) {
+        appPaths.push(tile.customFlow.iconPath);
+      }
+      continue;
+    }
+    appPaths.push(tile.iconPath ?? tile.path);
+  }
+
+  void iconsForPaths(appPaths, 256).then(async (appIcons) => {
+    if (connection.socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const payload = await Promise.all(
+      tiles.map(async (tile) => {
+        if (!tile) {
+          return null;
+        }
+
+        // 1. Utility tile
+        if (
+          tile.tileType === 'utility' ||
+          tile.utilityAction ||
+          tile.path.startsWith('utility:')
+        ) {
+          const action =
+            tile.utilityAction ??
+            tile.path.replace(/^utility:/, '');
+          return {
+            id: tile.id,
+            name: tile.name,
+            icon: await ensurePngDataUrl(getIconForPresetOrUtility(action)),
+          };
+        }
+
+        // 2. Custom Flow tile
+        if (
+          tile.tileType === 'custom' ||
+          tile.customFlow ||
+          tile.path.startsWith('custom:')
+        ) {
+          const flow =
+            tile.customFlow ??
+            persisted.customFlows.find((f) => f.id === tile.id);
+          let icon = flow?.iconDataUrl;
+          if (!icon && flow?.iconPreset) {
+            icon = getIconForPresetOrUtility(flow.iconPreset);
+          }
+          if (!icon && flow?.iconPath) {
+            icon = appIcons[flow.iconPath];
+          }
+          if (!icon && tile.iconPath) {
+            icon =
+              getIconForPresetOrUtility(tile.iconPath) ??
+              appIcons[tile.iconPath];
+          }
+          if (!icon) {
+            icon = getIconForPresetOrUtility('preset:terminal');
+          }
+          return {
+            id: tile.id,
+            name: tile.name,
+            icon: await ensurePngDataUrl(icon),
+          };
+        }
+
+        // 3. Standard App
+        return {
+          id: tile.id,
+          name: tile.name,
+          icon: appIcons[tile.iconPath ?? tile.path],
+        };
+      }),
+    );
     if (connection.socket.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -241,15 +343,7 @@ const pushDeck = (deviceId: string): void => {
       type: 'deck',
       columns: GRID_COLUMNS,
       rows: GRID_ROWS,
-      tiles: tiles.map((tile) =>
-        tile
-          ? {
-              id: tile.id,
-              name: tile.name,
-              icon: icons[tile.iconPath ?? tile.path],
-            }
-          : null,
-      ),
+      tiles: payload,
     });
   });
 };
@@ -298,6 +392,20 @@ const dropDeviceId = (id: string): void => {
       socket.close();
       live.delete(socket);
     }
+  }
+};
+
+const unpairDevice = (id: string): void => {
+  for (const [socket, item] of live) {
+    if (item.deviceId === id) {
+      send(socket, { type: 'logged_out' });
+      socket.close();
+      live.delete(socket);
+    }
+  }
+  persisted = forgetDevice(persisted, id);
+  if (lastPairedId === id) {
+    lastPairedId = null;
   }
 };
 
@@ -452,7 +560,19 @@ const handlePress = (
   if (!tile) {
     return;
   }
-  void launchDesktopApp(tile.path).catch((): void => undefined);
+  void executeTile(tile, persisted.customFlows).catch((err: unknown): void => {
+    console.error('[nudgeboard] executeTile failed', err);
+  });
+};
+
+const handleLogout = (socket: WebSocket): void => {
+  const item = live.get(socket);
+  if (!item) {
+    return;
+  }
+  unpairDevice(item.deviceId);
+  save();
+  sendToRenderer();
 };
 
 const handleMessage = (socket: WebSocket, raw: string): void => {
@@ -479,6 +599,10 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   }
   if (message.type === 'press') {
     handlePress(socket, message);
+    return;
+  }
+  if (message.type === 'logout') {
+    handleLogout(socket);
     return;
   }
   send(socket, { type: 'hello_err', reason: 'Unknown message' });
@@ -623,6 +747,152 @@ export const startBridge = async (): Promise<void> => {
   ipcMain.handle('bridge:get-app-icons', (_event, paths: string[]) =>
     iconsForPaths(paths, 256),
   );
+  ipcMain.handle('bridge:get-utility-icons', () => getUtilityIconDataUrls());
+  ipcMain.handle('bridge:get-preset-icons', () => getPresetIconDataUrls());
+  ipcMain.handle(
+    'bridge:save-custom-flow',
+    (_event, flow: CustomFlow): BridgeSnapshot => {
+      const list = persisted.customFlows ?? [];
+      const idx = list.findIndex((f) => f.id === flow.id);
+      if (idx >= 0) {
+        list[idx] = flow;
+      } else {
+        list.push(flow);
+      }
+      persisted.customFlows = list;
+
+      // Update any active deck tiles referencing this custom flow
+      for (const deviceId of Object.keys(persisted.tilesByDevice)) {
+        const tiles = persisted.tilesByDevice[deviceId];
+        let modified = false;
+        for (let i = 0; i < tiles.length; i++) {
+          const t = tiles[i];
+          if (t && (t.id === flow.id || t.path === `custom:${flow.id}`)) {
+            tiles[i] = {
+              ...t,
+              name: flow.name,
+              iconPath: flow.iconPath,
+              customFlow: flow,
+            };
+            modified = true;
+          }
+        }
+        if (modified) {
+          pushDeck(deviceId);
+        }
+      }
+
+      save();
+      sendToRenderer();
+      return snapshot();
+    },
+  );
+  ipcMain.handle(
+    'bridge:delete-custom-flow',
+    (_event, id: string): BridgeSnapshot => {
+      persisted.customFlows = (persisted.customFlows ?? []).filter(
+        (f) => f.id !== id,
+      );
+      save();
+      sendToRenderer();
+      return snapshot();
+    },
+  );
+  ipcMain.handle(
+    'bridge:browse-file',
+    async (
+      _event,
+      filter?: 'executable' | 'image' | 'all',
+    ): Promise<BrowseFileResult | null> => {
+      const win =
+        BrowserWindow.getFocusedWindow() ??
+        BrowserWindow.getAllWindows()[0];
+      let filters: Electron.FileFilter[] = [];
+      if (filter === 'executable') {
+        if (process.platform === 'win32') {
+          filters = [
+            {
+              name: 'Programs & Scripts (*.exe, *.bat, *.cmd, *.ps1, *.lnk)',
+              extensions: ['exe', 'bat', 'cmd', 'ps1', 'lnk', 'url', 'vbs', 'py', 'js'],
+            },
+            { name: 'All Files (*.*)', extensions: ['*'] },
+          ];
+        } else if (process.platform === 'darwin') {
+          filters = [
+            {
+              name: 'Applications & Scripts (*.app, *.sh, *.command)',
+              extensions: ['app', 'sh', 'command', 'py', 'js'],
+            },
+            { name: 'All Files (*.*)', extensions: ['*'] },
+          ];
+        } else {
+          filters = [
+            {
+              name: 'Binaries & Scripts (*.sh, *.desktop, *.bin)',
+              extensions: ['sh', 'desktop', 'bin', 'py', 'js'],
+            },
+            { name: 'All Files (*.*)', extensions: ['*'] },
+          ];
+        }
+      } else if (filter === 'image') {
+        filters = [
+          {
+            name: 'Image Files (*.png, *.jpg, *.jpeg, *.ico, *.webp, *.svg)',
+            extensions: ['png', 'jpg', 'jpeg', 'ico', 'webp', 'svg', 'gif', 'bmp'],
+          },
+          { name: 'All Files (*.*)', extensions: ['*'] },
+        ];
+      } else {
+        filters = [{ name: 'All Files (*.*)', extensions: ['*'] }];
+      }
+
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openFile'],
+        filters,
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+
+      const filePath = result.filePaths[0];
+      const name = basename(filePath);
+      let iconDataUrlResult: string | undefined;
+
+      if (
+        filter === 'image' ||
+        /\.(png|jpg|jpeg|ico|webp|svg|gif|bmp)$/i.test(filePath)
+      ) {
+        try {
+          if (filePath.toLowerCase().endsWith('.svg')) {
+            const svg = await readFile(filePath, 'utf8');
+            iconDataUrlResult = renderSvgToPngDataUrl(svg);
+          } else {
+            const native = nativeImage.createFromPath(filePath);
+            if (!native.isEmpty()) {
+              iconDataUrlResult = `data:image/png;base64,${native
+                .resize({ width: 256, height: 256, quality: 'best' })
+                .toPNG()
+                .toString('base64')}`;
+            }
+          }
+        } catch {
+          iconDataUrlResult = undefined;
+        }
+      } else {
+        const url = await iconDataUrl(filePath, 256);
+        if (url) {
+          iconDataUrlResult = url;
+        }
+      }
+
+      return {
+        path: filePath,
+        name,
+        iconDataUrl: iconDataUrlResult,
+      };
+    },
+  );
   ipcMain.handle(
     'bridge:set-tile',
     (_event, index: number, tile: DeckTile | null) => {
@@ -676,12 +946,7 @@ export const startBridge = async (): Promise<void> => {
     return snapshot();
   });
   ipcMain.handle('bridge:remove-device', (_event, id: string) => {
-    dropDeviceId(id);
-    persisted.devices = persisted.devices.filter((device) => device.id !== id);
-    delete persisted.tilesByDevice[id];
-    if (persisted.activeDeviceId === id) {
-      persisted.activeDeviceId = persisted.devices[0]?.id ?? null;
-    }
+    unpairDevice(id);
     save();
     sendToRenderer();
     return snapshot();
@@ -690,6 +955,7 @@ export const startBridge = async (): Promise<void> => {
 
 export const stopBridge = (): Promise<void> => {
   clearSession();
+  closeIconRasterizer();
   for (const { socket } of live.values()) {
     socket.close();
   }

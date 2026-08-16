@@ -73,6 +73,7 @@ export function connectBridge(
     onDeck: (tiles: Array<DeckTileView | null>) => void;
     onError: (reason: string) => void;
     onClose: () => void;
+    onLoggedOut?: () => void;
   },
 ): { close: () => void; send: (message: ClientMessage) => void } {
   const ws = new WebSocket(`ws://${host}:${port}`);
@@ -100,6 +101,12 @@ export function connectBridge(
 
     if (payload.type === 'hello_ok') {
       handlers.onConnected(payload);
+      return;
+    }
+
+    if (payload.type === 'logged_out') {
+      handlers.onLoggedOut?.();
+      ws.close();
       return;
     }
 

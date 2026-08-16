@@ -224,14 +224,25 @@ export const useAppStore = create<AppState>()(
         const profiles = get().profiles.filter(
           (item) => item.fingerprint !== fingerprint,
         );
-        const activeFingerprint =
-          get().activeFingerprint === fingerprint
-            ? (profiles[0]?.fingerprint ?? null)
-            : get().activeFingerprint;
+        const wasActive = get().activeFingerprint === fingerprint;
+        const activeFingerprint = wasActive
+          ? (profiles[0]?.fingerprint ?? null)
+          : get().activeFingerprint;
         set({
           profiles,
           activeFingerprint,
           screen: profiles.length > 0 ? 'profiles' : 'scan',
+          ...(wasActive
+            ? {
+                status: 'idle' as const,
+                connectedName: null,
+                error: null,
+                pairing: null,
+                pin: null,
+                deck: emptyDeck(),
+                hasDeck: false,
+              }
+            : {}),
         });
       },
       cancelPairing: () =>

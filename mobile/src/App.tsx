@@ -48,6 +48,16 @@ function useBridgeConnection() {
     connectionRef.current = null;
   };
 
+  const logout = () => {
+    connectionRef.current?.send({ type: 'logout' });
+    const connection = connectionRef.current;
+    setTimeout(() => {
+      if (connectionRef.current === connection) {
+        disconnect();
+      }
+    }, 250);
+  };
+
   const pressTile = (id: string) => {
     connectionRef.current?.send({ type: 'press', id });
   };
@@ -88,8 +98,24 @@ function useBridgeConnection() {
           if (connectionRef.current !== session) {
             return;
           }
+          if (reason.includes('does not recognize')) {
+            const fingerprint = useAppStore.getState().activeFingerprint;
+            if (fingerprint) {
+              useAppStore.getState().removeProfile(fingerprint);
+            }
+            return;
+          }
           setError(reason);
           setStatus('idle');
+        },
+        onLoggedOut: () => {
+          if (connectionRef.current !== session) {
+            return;
+          }
+          const fingerprint = useAppStore.getState().activeFingerprint;
+          if (fingerprint) {
+            useAppStore.getState().removeProfile(fingerprint);
+          }
         },
         onClose: () => {
           if (connectionRef.current !== session) {
@@ -158,7 +184,7 @@ function useBridgeConnection() {
     setDeck,
   ]);
 
-  return { disconnect, pressTile };
+  return { disconnect, logout, pressTile };
 }
 
 function AppShell() {
@@ -179,7 +205,7 @@ function ReadyApp() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const cancelPairing = useAppStore((s) => s.cancelPairing);
-  const { disconnect, pressTile } = useBridgeConnection();
+  const { disconnect, logout, pressTile } = useBridgeConnection();
 
   return (
     <SafeAreaView
@@ -206,7 +232,11 @@ function ReadyApp() {
         <ProfilesScreen onAdd={() => setScreen('scan')} />
       ) : null}
       {screen === 'deck' ? (
-        <DeckScreen onDisconnect={disconnect} onPressTile={pressTile} />
+        <DeckScreen
+          onDisconnect={disconnect}
+          onLogout={logout}
+          onPressTile={pressTile}
+        />
       ) : null}
     </SafeAreaView>
   );
