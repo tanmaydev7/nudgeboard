@@ -2,6 +2,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import path from 'path';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
@@ -16,11 +17,24 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: path.resolve(__dirname, '../icons/png/nudgeboard-512'),
+    appBundleId: 'com.nudgeboard.desktop',
+    appCategoryType: 'public.app-category.utilities',
+    extendInfo: {
+      NSAppleEventsUsageDescription:
+        'Nudgeboard requires permission to control media players and dispatch keyboard shortcuts from your connected phone.',
+    },
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
+    new MakerDMG(
+      {
+        name: 'Nudgeboard',
+        format: 'ULFO',
+      },
+      ['darwin'],
+    ),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

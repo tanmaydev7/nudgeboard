@@ -277,6 +277,10 @@ export type BrowseFileResult = {
   iconDataUrl?: string;
 };
 
+export type MacPermissions = {
+  accessibility: boolean;
+};
+
 export interface ElectronAPI {
   platform: NodeJS.Platform;
   getSnapshot: () => Promise<BridgeSnapshot>;
@@ -308,6 +312,11 @@ export interface ElectronAPI {
   triggerWidgetAction: (
     action: WidgetActionType,
     value?: number,
+  ) => Promise<void>;
+  getMacPermissions?: () => Promise<MacPermissions>;
+  requestMacAccessibility?: () => Promise<boolean>;
+  openMacPrivacySettings?: (
+    pane?: 'accessibility' | 'automation',
   ) => Promise<void>;
   onSnapshot: (callback: (snapshot: BridgeSnapshot) => void) => () => void;
   onMediaState?: (

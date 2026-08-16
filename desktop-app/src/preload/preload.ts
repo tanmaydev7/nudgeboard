@@ -3,6 +3,7 @@ import type {
   BridgeSnapshot,
   DesktopApp,
   ElectronAPI,
+  MacPermissions,
   VerifyResult,
 } from '../shared/ipc-types';
 import type { MediaState, VolumeState } from '../shared/protocol';
@@ -50,6 +51,12 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('bridge:set-appearance', mode) as Promise<BridgeSnapshot>,
   triggerWidgetAction: (action, value) =>
     ipcRenderer.invoke('bridge:trigger-widget-action', action, value) as Promise<void>,
+  getMacPermissions: () =>
+    ipcRenderer.invoke('bridge:get-mac-permissions') as Promise<MacPermissions>,
+  requestMacAccessibility: () =>
+    ipcRenderer.invoke('bridge:request-mac-accessibility') as Promise<boolean>,
+  openMacPrivacySettings: (pane) =>
+    ipcRenderer.invoke('bridge:open-mac-privacy-settings', pane) as Promise<void>,
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {
       callback(snapshot);

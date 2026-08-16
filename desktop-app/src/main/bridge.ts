@@ -3,7 +3,15 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server as
 import { hostname, networkInterfaces } from 'os';
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import { BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme } from 'electron';
+import {
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeImage,
+  nativeTheme,
+  shell,
+  systemPreferences,
+} from 'electron';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
@@ -1552,6 +1560,36 @@ export const startBridge = async (): Promise<void> => {
     sendToRenderer();
     return snapshot();
   });
+  ipcMain.handle('bridge:get-mac-permissions', () => {
+    if (process.platform !== 'darwin') {
+      return { accessibility: true };
+    }
+    const accessibility = systemPreferences.isTrustedAccessibilityClient(false);
+    return { accessibility };
+  });
+  ipcMain.handle('bridge:request-mac-accessibility', () => {
+    if (process.platform !== 'darwin') {
+      return true;
+    }
+    return systemPreferences.isTrustedAccessibilityClient(true);
+  });
+  ipcMain.handle(
+    'bridge:open-mac-privacy-settings',
+    (_event, pane?: 'accessibility' | 'automation') => {
+      if (process.platform !== 'darwin') {
+        return;
+      }
+      if (pane === 'automation') {
+        void shell.openExternal(
+          'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+        );
+      } else {
+        void shell.openExternal(
+          'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+        );
+      }
+    },
+  );
 
   if (statusTimer) {
     clearInterval(statusTimer);

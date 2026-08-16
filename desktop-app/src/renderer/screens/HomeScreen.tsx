@@ -19,6 +19,12 @@ import {
   LuSkipBack,
   LuSkipForward,
   LuGripVertical,
+  LuShieldAlert,
+  LuShieldCheck,
+  LuExternalLink,
+  LuCopy,
+  LuCheck,
+  LuSettings,
 } from 'react-icons/lu';
 import {
   UTILITY_ITEMS,
@@ -26,6 +32,7 @@ import {
   type CustomFlow,
   type DeckTile,
   type DesktopApp,
+  type MacPermissions,
   type UtilityItem,
   type WidgetItem,
 } from '../../shared/ipc-types';
@@ -630,18 +637,35 @@ export function HomeScreen() {
     gridRect: DOMRect;
   } | null>(null);
   const [page, setPage] = useState(0);
-  const [dialog, setDialog] = useState<'logout' | 'about' | 'help' | null>(null);
+  const [dialog, setDialog] = useState<
+    'logout' | 'about' | 'help' | 'mac-guide' | null
+  >(null);
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [editingFlow, setEditingFlow] = useState<CustomFlow | null>(null);
+  const [macPerms, setMacPerms] = useState<MacPermissions | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const isMac = window.api.platform === 'darwin';
   const activePage = Math.min(page, pages - 1);
+
+  const refreshMacPerms = () => {
+    if (isMac && window.api.getMacPermissions) {
+      void window.api.getMacPermissions().then(setMacPerms);
+    }
+  };
 
   useEffect(() => {
     void window.api.listApps().then(setApps);
     void window.api.getUtilityIcons().then(setUtilityIcons);
     void window.api.getPresetIcons().then(setPresetIcons);
   }, []);
+
+  useEffect(() => {
+    refreshMacPerms();
+    const handleFocus = () => refreshMacPerms();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [isMac]);
 
   useEffect(() => {
     setPage(0);
@@ -1079,6 +1103,20 @@ export function HomeScreen() {
         </div>
 
         <div className="sidebar-foot">
+          {isMac ? (
+            <button
+              type="button"
+              className={`sidebar-mac-btn${macPerms && !macPerms.accessibility ? ' warning' : ''}`}
+              onClick={() => setDialog('mac-guide')}
+            >
+              {macPerms && !macPerms.accessibility ? (
+                <LuShieldAlert size={15} />
+              ) : (
+                <LuShieldCheck size={15} />
+              )}
+              Mac Setup &amp; Permissions
+            </button>
+          ) : null}
           <button type="button" onClick={() => setDialog('about')}>
             <LuInfo size={15} />
             About NudgeBoard v1.0
@@ -1108,6 +1146,39 @@ export function HomeScreen() {
             <span className="live-pill dim">Offline</span>
           )}
         </header>
+
+        {isMac && macPerms && !macPerms.accessibility ? (
+          <div className="mac-perm-banner">
+            <div className="mac-perm-banner-text">
+              <LuShieldAlert size={18} className="mac-perm-banner-icon" />
+              <div>
+                <strong>macOS Accessibility Permission Needed</strong>
+                <p>
+                  Nudgeboard needs Accessibility access to dispatch keyboard shortcuts and media keys from your phone.
+                </p>
+              </div>
+            </div>
+            <div className="mac-perm-banner-actions">
+              <button
+                type="button"
+                className="btn-mac-perm-primary"
+                onClick={() => {
+                  void window.api.requestMacAccessibility?.();
+                  setDialog('mac-guide');
+                }}
+              >
+                Grant Permission
+              </button>
+              <button
+                type="button"
+                className="btn-mac-perm-secondary"
+                onClick={() => setDialog('mac-guide')}
+              >
+                Setup Guide
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="phone-stage">
           <div className="phone">
@@ -2159,6 +2230,207 @@ export function HomeScreen() {
                 onClick={() => setDialog(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {dialog === 'mac-guide' ? (
+        <div className="modal-backdrop">
+          <div
+            className="modal mac-guide-modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mac-guide-head">
+              <div>
+                <h2>macOS Setup &amp; Permissions</h2>
+                <p>
+                  Configure your Mac so Nudgeboard can trigger keyboard shortcuts,
+                  control media players, and communicate with your phone.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="mac-guide-close-btn"
+                onClick={() => setDialog(null)}
+              >
+                <LuX size={18} />
+              </button>
+            </div>
+
+            <div className="mac-guide-content">
+              {/* Card 1: Accessibility */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>1. Accessibility Permission</strong>
+                    <span
+                      className={`perm-badge ${
+                        macPerms?.accessibility ? 'granted' : 'needed'
+                      }`}
+                    >
+                      {macPerms?.accessibility ? (
+                        <>
+                          <LuShieldCheck size={13} /> Granted
+                        </>
+                      ) : (
+                        <>
+                          <LuShieldAlert size={13} /> Action Required
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <p>
+                    Required for executing shortcuts (Cmd/Ctrl chords) and system
+                    actions via System Events.
+                  </p>
+                </div>
+
+                <div className="mac-guide-card-actions">
+                  {!macPerms?.accessibility ? (
+                    <button
+                      type="button"
+                      className="btn-mac-action primary"
+                      onClick={() => {
+                        void window.api.requestMacAccessibility?.();
+                        refreshMacPerms();
+                      }}
+                    >
+                      <LuSettings size={14} />
+                      Request System Prompt
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn-mac-action secondary"
+                    onClick={() => {
+                      void window.api.openMacPrivacySettings?.('accessibility');
+                    }}
+                  >
+                    <LuExternalLink size={14} />
+                    Open Privacy &amp; Security
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-mac-action text"
+                    onClick={refreshMacPerms}
+                  >
+                    Refresh Status
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Automation / Media Control */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>2. Automation &amp; Media Player Control</strong>
+                    <span className="perm-badge info">Automatic on First Use</span>
+                  </div>
+                  <p>
+                    When you tap media controls or the Now Playing widget, macOS
+                    will prompt: <em>&ldquo;Nudgeboard wants to control Spotify / Music&rdquo;</em>.
+                    Click <strong>Allow</strong>.
+                  </p>
+                </div>
+
+                <div className="mac-guide-card-actions">
+                  <button
+                    type="button"
+                    className="btn-mac-action secondary"
+                    onClick={() => {
+                      void window.api.openMacPrivacySettings?.('automation');
+                    }}
+                  >
+                    <LuExternalLink size={14} />
+                    Open Automation Settings
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Gatekeeper / Unsigned Google Drive App */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>3. Opening DMG / App from Google Drive</strong>
+                    <span className="perm-badge tip">Personal Use Tip</span>
+                  </div>
+                  <p>
+                    Since this is for personal use without Apple Developer certificate
+                    signing, macOS Gatekeeper may show a warning when first opening.
+                  </p>
+                </div>
+
+                <div className="mac-guide-steps">
+                  <div className="mac-step-item">
+                    <span className="step-num">A</span>
+                    <span>
+                      <strong>Finder method:</strong> Right-click (or Control-click){' '}
+                      <code>Nudgeboard.app</code> in <code>/Applications</code> &rarr;{' '}
+                      Click <strong>Open</strong> &rarr; Click <strong>Open</strong>.
+                    </span>
+                  </div>
+                  <div className="mac-step-item">
+                    <span className="step-num">B</span>
+                    <div className="step-terminal-wrap">
+                      <span>
+                        <strong>Terminal command:</strong> If blocked by quarantine:
+                      </span>
+                      <div className="code-block-row">
+                        <code>xattr -cr /Applications/Nudgeboard.app</code>
+                        <button
+                          type="button"
+                          className="btn-copy-code"
+                          title="Copy command"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(
+                              'xattr -cr /Applications/Nudgeboard.app',
+                            );
+                            setCopiedCmd(true);
+                            setTimeout(() => setCopiedCmd(false), 2000);
+                          }}
+                        >
+                          {copiedCmd ? (
+                            <>
+                              <LuCheck size={13} /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <LuCopy size={13} /> Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Network */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>4. Local Network &amp; Wi-Fi</strong>
+                    <span className="perm-badge info">Connection</span>
+                  </div>
+                  <p>
+                    Keep your Mac and phone on the same Wi-Fi network. If macOS asks
+                    for <em>Local Network</em> permission when first running, click{' '}
+                    <strong>Allow</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions mac-guide-foot">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setDialog(null)}
+              >
+                Done
               </button>
             </div>
           </div>
