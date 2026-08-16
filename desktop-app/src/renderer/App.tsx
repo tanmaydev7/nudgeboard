@@ -8,6 +8,8 @@ const App = () => {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const setSnapshot = useAppStore((s) => s.setSnapshot);
+  const setMediaState = useAppStore((s) => s.setMediaState);
+  const setVolumeState = useAppStore((s) => s.setVolumeState);
   const snapshot = useAppStore((s) => s.snapshot);
   const appearance = snapshot?.appearance ?? 'dark';
   const isMac = window.api.platform === 'darwin';
@@ -29,8 +31,15 @@ const App = () => {
         setView('qr');
       });
     });
-    return window.api.onSnapshot(setSnapshot);
-  }, [setSnapshot, setView]);
+    const unsubSnap = window.api.onSnapshot(setSnapshot);
+    const unsubMedia = window.api.onMediaState?.(setMediaState);
+    const unsubVol = window.api.onVolumeState?.(setVolumeState);
+    return () => {
+      unsubSnap();
+      unsubMedia?.();
+      unsubVol?.();
+    };
+  }, [setSnapshot, setView, setMediaState, setVolumeState]);
 
   useEffect(() => {
     const step = snapshot?.pairing?.step;

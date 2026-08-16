@@ -1,4 +1,18 @@
-import type { DevicePlatform, PairingPayload } from './protocol';
+import type {
+  DevicePlatform,
+  PairingPayload,
+  MediaState,
+  VolumeState,
+  WidgetActionType,
+  WidgetType,
+} from './protocol';
+
+export type {
+  MediaState,
+  VolumeState,
+  WidgetActionType,
+  WidgetType,
+};
 
 export const GRID_COLUMNS = 4;
 export const GRID_ROWS = 2;
@@ -119,6 +133,45 @@ export const UTILITY_ITEMS: UtilityItem[] = [
   },
 ];
 
+export type WidgetItem = {
+  id: WidgetType;
+  name: string;
+  description: string;
+  defaultColSpan: number;
+  defaultRowSpan: number;
+  allowedVariants: Array<{ colSpan: number; rowSpan: number; label: string }>;
+};
+
+export const WIDGET_ITEMS: WidgetItem[] = [
+  {
+    id: 'media',
+    name: 'Now Playing',
+    description:
+      'Live album art, track, artist & playback controls for Spotify, Apple Music, YouTube & more',
+    defaultColSpan: 2,
+    defaultRowSpan: 1,
+    allowedVariants: [
+      { colSpan: 1, rowSpan: 1, label: 'Small (1x1)' },
+      { colSpan: 2, rowSpan: 1, label: 'Medium (2x1)' },
+      { colSpan: 2, rowSpan: 2, label: 'Large (2x2)' },
+      { colSpan: 4, rowSpan: 1, label: 'Banner (4x1)' },
+    ],
+  },
+  {
+    id: 'volume',
+    name: 'Master Volume',
+    description:
+      'PC Master Volume slider with live level indicator & mute toggle',
+    defaultColSpan: 2,
+    defaultRowSpan: 1,
+    allowedVariants: [
+      { colSpan: 1, rowSpan: 1, label: 'Compact (1x1)' },
+      { colSpan: 2, rowSpan: 1, label: 'Slider (2x1)' },
+      { colSpan: 4, rowSpan: 1, label: 'Wide Slider (4x1)' },
+    ],
+  },
+];
+
 export type FlowStep =
   | { type: 'launch'; path: string; args?: string }
   | { type: 'shortcut'; keys: string[]; rawKey?: string }
@@ -135,7 +188,7 @@ export type CustomFlow = {
   steps: FlowStep[];
 };
 
-export type DeckTileType = 'app' | 'utility' | 'custom';
+export type DeckTileType = 'app' | 'utility' | 'custom' | 'widget';
 
 export type DesktopApp = {
   id: string;
@@ -150,6 +203,9 @@ export type DeckTile = {
   path: string;
   iconPath?: string;
   tileType?: DeckTileType;
+  widgetType?: WidgetType;
+  colSpan?: number;
+  rowSpan?: number;
   utilityAction?: UtilityAction;
   customFlow?: CustomFlow;
 };
@@ -207,6 +263,8 @@ export type BridgeSnapshot = {
   tiles: Array<DeckTile | null>;
   customFlows: CustomFlow[];
   appearance: Appearance;
+  mediaState?: MediaState | null;
+  volumeState?: VolumeState | null;
 };
 
 export type VerifyResult =
@@ -232,6 +290,12 @@ export interface ElectronAPI {
   getUtilityIcons: () => Promise<Record<string, string>>;
   getPresetIcons: () => Promise<Record<string, string>>;
   setTile: (index: number, tile: DeckTile | null) => Promise<BridgeSnapshot>;
+  moveTile: (fromIndex: number, toIndex: number) => Promise<BridgeSnapshot>;
+  resizeTile: (
+    index: number,
+    colSpan: number,
+    rowSpan: number,
+  ) => Promise<BridgeSnapshot>;
   addPage: () => Promise<BridgeSnapshot>;
   removePage: (page: number) => Promise<BridgeSnapshot>;
   removeDevice: (id: string) => Promise<BridgeSnapshot>;
@@ -241,7 +305,15 @@ export interface ElectronAPI {
     filter?: 'executable' | 'image' | 'all',
   ) => Promise<BrowseFileResult | null>;
   setAppearance: (mode: Appearance) => Promise<BridgeSnapshot>;
+  triggerWidgetAction: (
+    action: WidgetActionType,
+    value?: number,
+  ) => Promise<void>;
   onSnapshot: (callback: (snapshot: BridgeSnapshot) => void) => () => void;
+  onMediaState?: (
+    callback: (state: MediaState | null) => void,
+  ) => () => void;
+  onVolumeState?: (callback: (state: VolumeState) => void) => () => void;
 }
 
 declare global {

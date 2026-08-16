@@ -4,7 +4,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { findPairingHost } from './lan';
 import { connectBridge, getDeviceInfo } from './pairing';
-import { isPrivateLanHost, type ClientMessage } from './protocol';
+import {
+  isPrivateLanHost,
+  type ClientMessage,
+  type WidgetActionType,
+} from './protocol';
 import { DeckScreen } from './screens/DeckScreen';
 import { ManualCodeScreen } from './screens/ManualCodeScreen';
 import { PairCodeScreen } from './screens/PairCodeScreen';
@@ -42,6 +46,8 @@ function useBridgeConnection() {
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
   const setDeck = useAppStore((s) => s.setDeck);
+  const setMediaState = useAppStore((s) => s.setMediaState);
+  const setVolumeState = useAppStore((s) => s.setVolumeState);
 
   const disconnect = () => {
     connectionRef.current?.close();
@@ -60,6 +66,10 @@ function useBridgeConnection() {
 
   const pressTile = (id: string) => {
     connectionRef.current?.send({ type: 'press', id });
+  };
+
+  const triggerWidgetAction = (action: WidgetActionType, value?: number) => {
+    connectionRef.current?.send({ type: 'widget_action', action, value });
   };
 
   useEffect(() => {
@@ -107,6 +117,18 @@ function useBridgeConnection() {
               return;
             }
             setDeck(tiles);
+          },
+          onMediaState: (media) => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            setMediaState(media);
+          },
+          onVolumeState: (vol) => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            setVolumeState(vol);
           },
           onError: (reason) => {
             if (connectionRef.current !== session) {
@@ -203,9 +225,11 @@ function useBridgeConnection() {
     setError,
     setStatus,
     setDeck,
+    setMediaState,
+    setVolumeState,
   ]);
 
-  return { disconnect, logout, pressTile };
+  return { disconnect, logout, pressTile, triggerWidgetAction };
 }
 
 function AppShell() {
@@ -228,7 +252,8 @@ function ReadyApp() {
   const setScreen = useAppStore((s) => s.setScreen);
   const cancelPairing = useAppStore((s) => s.cancelPairing);
   const palette = usePalette();
-  const { disconnect, logout, pressTile } = useBridgeConnection();
+  const { disconnect, logout, pressTile, triggerWidgetAction } =
+    useBridgeConnection();
 
   return (
     <SafeAreaView
@@ -259,6 +284,7 @@ function ReadyApp() {
           onDisconnect={disconnect}
           onLogout={logout}
           onPressTile={pressTile}
+          onWidgetAction={triggerWidgetAction}
         />
       ) : null}
     </SafeAreaView>

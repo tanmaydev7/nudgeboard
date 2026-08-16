@@ -11,7 +11,11 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { deckPageCount, pageTiles } from '../protocol';
+import {
+  deckPageCount,
+  pageTiles,
+  type WidgetActionType,
+} from '../protocol';
 import { useAppStore } from '../store';
 import { spacing, type Palette, useThemedStyles } from '../theme';
 import { DeckGrid } from './DeckGrid';
@@ -21,9 +25,15 @@ type Props = {
   onDisconnect: () => void;
   onLogout?: () => void;
   onPressTile?: (id: string) => void;
+  onWidgetAction?: (action: WidgetActionType, value?: number) => void;
 };
 
-export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
+export function DeckScreen({
+  onDisconnect,
+  onLogout,
+  onPressTile,
+  onWidgetAction,
+}: Props) {
   const styles = useThemedStyles(makeStyles);
   const connectedName = useAppStore((s) => s.connectedName);
   const profiles = useAppStore((s) => s.profiles);
@@ -108,26 +118,23 @@ export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
           styles.content,
           landscape ? styles.landscape : null,
           {
-            paddingTop: landscape ? spacing.sm : spacing.md,
+            paddingTop: landscape ? 4 : spacing.sm,
             paddingBottom: DRAWER_PEEK + bottomGap,
           },
         ]}
       >
         {landscape ? null : (
-          <>
-            <Pressable
-              onPress={() => drawerRef.current?.open()}
-              style={({ pressed }) => [
-                styles.top,
-                pressed ? styles.pressed : null,
-              ]}
-            >
-              <Text style={styles.title} numberOfLines={1}>
-                {name}
-              </Text>
-            </Pressable>
-            <Text style={styles.hint}>Stay on the same Wi-Fi as your PC.</Text>
-          </>
+          <Pressable
+            onPress={() => drawerRef.current?.open()}
+            style={({ pressed }) => [
+              styles.top,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <Text style={styles.title} numberOfLines={1}>
+              {name}
+            </Text>
+          </Pressable>
         )}
         <View
           style={[styles.carousel, landscape ? styles.carouselLandscape : null]}
@@ -148,7 +155,9 @@ export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
                   >
                     <DeckGrid
                       tiles={pageTiles(deck, index)}
+                      landscape={landscape}
                       onPressTile={live ? onPressTile : undefined}
+                      onWidgetAction={live ? onWidgetAction : undefined}
                     />
                   </View>
                 ))}
@@ -179,12 +188,12 @@ const makeStyles = (palette: Palette) =>
     content: {
       flex: 1,
       minHeight: 0,
-      paddingHorizontal: spacing.lg,
+      paddingHorizontal: spacing.sm,
       paddingBottom: 0,
-      gap: spacing.sm,
+      gap: 4,
     },
     landscape: {
-      paddingHorizontal: spacing.sm,
+      paddingHorizontal: 4,
       gap: 0,
     },
     statusHit: {
@@ -209,16 +218,14 @@ const makeStyles = (palette: Palette) =>
       flexDirection: 'row',
       alignItems: 'center',
       paddingRight: 28,
+      paddingLeft: 4,
+      paddingVertical: 2,
     },
     title: {
       flex: 1,
       color: palette.text,
-      fontSize: 22,
+      fontSize: 18,
       fontWeight: '800',
-    },
-    hint: {
-      color: palette.muted,
-      fontSize: 13,
     },
     pressed: {
       opacity: 0.85,
@@ -226,7 +233,7 @@ const makeStyles = (palette: Palette) =>
     carousel: {
       flex: 1,
       minHeight: 0,
-      gap: spacing.sm,
+      gap: 4,
     },
     carouselLandscape: {
       gap: 2,
@@ -240,6 +247,7 @@ const makeStyles = (palette: Palette) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
+      paddingBottom: 2,
     },
     dotsLandscape: {
       paddingBottom: 2,

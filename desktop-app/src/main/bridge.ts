@@ -18,9 +18,13 @@ import {
   type BrowseFileResult,
   type DeckTile,
   type DeviceProfile,
+  type MediaState,
   type PairingSession,
   type PendingDevice,
   type VerifyResult,
+  type VolumeState,
+  type WidgetActionType,
+  type WidgetType,
 } from '../shared/ipc-types';
 import {
   APP_ID,
@@ -39,6 +43,8 @@ import {
 import { listDesktopApps, iconsForPaths, iconDataUrl } from './apps';
 import { deriveKey, decryptEnvelope, encryptEnvelope } from './crypto';
 import { executeTile } from './executor';
+import { getMediaState, executeMediaAction } from './media';
+import { getVolumeState, setMasterVolume, toggleMasterMute } from './volume';
 import {
   closeIconRasterizer,
   ensurePngDataUrl,
@@ -117,6 +123,11 @@ const live = new Map<WebSocket, LiveSocket>();
 let pairingFailures = 0;
 const ipFailures = new Map<string, { count: number; until: number }>();
 const connectHits = new Map<string, number[]>();
+
+let lastMediaState: MediaState | null = null;
+let lastPositionBroadcastAt = 0;
+let lastVolumeState: VolumeState = { volume: 50, isMuted: false };
+let statusTimer: NodeJS.Timeout | null = null;
 
 const desktopOs = (): string => {
   if (process.platform === 'darwin') {
@@ -270,7 +281,104 @@ const snapshot = (): BridgeSnapshot => ({
   tiles: tilesFor(persisted.activeDeviceId),
   customFlows: persisted.customFlows ?? [],
   appearance: currentAppearance(),
+  mediaState: lastMediaState,
+  volumeState: lastVolumeState,
 });
+
+export const broadcastMediaState = (state: MediaState | null): void => {
+  lastMediaState = state;
+  for (const [socket] of live) {
+    send(socket, { type: 'media_state', state });
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('bridge:media-state', state);
+  }
+};
+
+export const broadcastVolumeState = (state: VolumeState): void => {
+  lastVolumeState = state;
+  for (const [socket] of live) {
+    send(socket, { type: 'volume_state', state });
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('bridge:volume-state', state);
+  }
+};
+
+export const pollStatus = async (): Promise<void> => {
+  try {
+    const [media, volume] = await Promise.all([
+      getMediaState(),
+      getVolumeState(),
+    ]);
+
+    const metaChanged =
+      media?.title !== lastMediaState?.title ||
+      media?.artist !== lastMediaState?.artist ||
+      media?.isPlaying !== lastMediaState?.isPlaying ||
+      media?.artwork !== lastMediaState?.artwork ||
+      media?.sourceApp !== lastMediaState?.sourceApp ||
+      media?.sessionId !== lastMediaState?.sessionId;
+
+    const now = Date.now();
+    const positionDrifted =
+      media?.isPlaying &&
+      Math.abs((media.positionSec || 0) - (lastMediaState?.positionSec || 0)) > 2;
+
+    const periodicSync =
+      media?.isPlaying && now - lastPositionBroadcastAt >= 3000;
+
+    if (metaChanged || positionDrifted || periodicSync) {
+      lastPositionBroadcastAt = now;
+      broadcastMediaState(media);
+    }
+
+    const volumeChanged =
+      volume.volume !== lastVolumeState.volume ||
+      volume.isMuted !== lastVolumeState.isMuted;
+
+    if (volumeChanged) {
+      broadcastVolumeState(volume);
+    }
+  } catch {
+    // ignore
+  }
+};
+
+export const handleWidgetAction = async (
+  action: WidgetActionType,
+  value?: number,
+): Promise<void> => {
+  if (action === 'set_volume' && typeof value === 'number') {
+    const state = await setMasterVolume(value);
+    broadcastVolumeState(state);
+    return;
+  }
+  if (action === 'toggle_mute') {
+    const state = await toggleMasterMute();
+    broadcastVolumeState(state);
+    return;
+  }
+  if (
+    action === 'media_play_pause' ||
+    action === 'media_next' ||
+    action === 'media_prev' ||
+    action === 'media_stop'
+  ) {
+    const act =
+      action === 'media_play_pause'
+        ? 'play_pause'
+        : action === 'media_next'
+          ? 'next'
+          : action === 'media_prev'
+            ? 'prev'
+            : 'stop';
+    await executeMediaAction(act, lastMediaState?.sessionId);
+    setTimeout(() => {
+      void pollStatus();
+    }, 200);
+  }
+};
 
 const sendToRenderer = (): void => {
   const next = snapshot();
@@ -343,7 +451,32 @@ const pushDeck = (deviceId: string): void => {
           return null;
         }
 
-        // 1. Utility tile
+        // 1. Widget tile
+        if (
+          tile.tileType === 'widget' ||
+          tile.widgetType ||
+          tile.path.startsWith('widget:')
+        ) {
+          const widget =
+            tile.widgetType ??
+            (tile.path.replace(/^widget:/, '') as WidgetType);
+          const icon = await ensurePngDataUrl(
+            getIconForPresetOrUtility(
+              widget === 'volume' ? 'volume_up' : 'media_play_pause',
+            ),
+          );
+          return {
+            id: tile.id,
+            name: tile.name,
+            icon,
+            tileType: 'widget' as const,
+            widgetType: widget,
+            colSpan: tile.colSpan ?? 2,
+            rowSpan: tile.rowSpan ?? 1,
+          };
+        }
+
+        // 2. Utility tile
         if (
           tile.tileType === 'utility' ||
           tile.utilityAction ||
@@ -356,10 +489,13 @@ const pushDeck = (deviceId: string): void => {
             id: tile.id,
             name: tile.name,
             icon: await ensurePngDataUrl(getIconForPresetOrUtility(action)),
+            tileType: 'utility' as const,
+            colSpan: tile.colSpan ?? 1,
+            rowSpan: tile.rowSpan ?? 1,
           };
         }
 
-        // 2. Custom Flow tile
+        // 3. Custom Flow tile
         if (
           tile.tileType === 'custom' ||
           tile.customFlow ||
@@ -387,14 +523,20 @@ const pushDeck = (deviceId: string): void => {
             id: tile.id,
             name: tile.name,
             icon: await ensurePngDataUrl(icon),
+            tileType: 'custom' as const,
+            colSpan: tile.colSpan ?? 1,
+            rowSpan: tile.rowSpan ?? 1,
           };
         }
 
-        // 3. Standard App
+        // 4. Standard App
         return {
           id: tile.id,
           name: tile.name,
           icon: appIcons[tile.iconPath ?? tile.path],
+          tileType: 'app' as const,
+          colSpan: tile.colSpan ?? 1,
+          rowSpan: tile.rowSpan ?? 1,
         };
       }),
     );
@@ -406,6 +548,14 @@ const pushDeck = (deviceId: string): void => {
       columns: GRID_COLUMNS,
       rows: GRID_ROWS,
       tiles: payload,
+    });
+    send(connection.socket, {
+      type: 'media_state',
+      state: lastMediaState,
+    });
+    send(connection.socket, {
+      type: 'volume_state',
+      state: lastVolumeState,
     });
   });
 };
@@ -822,7 +972,12 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
     if (!connection || !connection.sessionKey) {
       return;
     }
-    const inner = decryptEnvelope<{ type: string; id?: string }>(
+    const inner = decryptEnvelope<{
+      type: string;
+      id?: string;
+      action?: WidgetActionType;
+      value?: number;
+    }>(
       connection.sessionKey,
       message,
       connection.inSeq,
@@ -833,6 +988,10 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
     connection.inSeq += 1;
     if (inner.type === 'press' && typeof inner.id === 'string') {
       handlePress(socket, { type: 'press', id: inner.id });
+      return;
+    }
+    if (inner.type === 'widget_action' && typeof inner.action === 'string') {
+      void handleWidgetAction(inner.action, inner.value);
       return;
     }
     if (inner.type === 'logout') {
@@ -859,6 +1018,10 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   }
   if (message.type === 'press') {
     handlePress(socket, message);
+    return;
+  }
+  if (message.type === 'widget_action') {
+    void handleWidgetAction(message.action, message.value);
     return;
   }
   if (message.type === 'logout') {
@@ -1182,8 +1345,34 @@ export const startBridge = async (): Promise<void> => {
       if (index >= tiles.length) {
         return snapshot();
       }
-      tiles[index] =
+      const sanitized =
         tile === null ? null : sanitizeDeckTile(tile, persisted.customFlows);
+
+      if (sanitized) {
+        const slotInPage = index % GRID_SLOTS;
+        const slotCol = slotInPage % GRID_COLUMNS;
+        const slotRow = Math.floor(slotInPage / GRID_COLUMNS);
+        const maxColSpan = GRID_COLUMNS - slotCol;
+        const maxRowSpan = GRID_ROWS - slotRow;
+        sanitized.colSpan = Math.max(1, Math.min(maxColSpan, sanitized.colSpan ?? 1));
+        sanitized.rowSpan = Math.max(1, Math.min(maxRowSpan, sanitized.rowSpan ?? 1));
+
+        // Clear any slots that are covered by this newly placed multi-cell tile
+        const pageStart = Math.floor(index / GRID_SLOTS) * GRID_SLOTS;
+        for (let r = 0; r < sanitized.rowSpan; r++) {
+          for (let c = 0; c < sanitized.colSpan; c++) {
+            if (r !== 0 || c !== 0) {
+              const coveredSlotIndex =
+                pageStart + (slotRow + r) * GRID_COLUMNS + (slotCol + c);
+              if (coveredSlotIndex < tiles.length) {
+                tiles[coveredSlotIndex] = null;
+              }
+            }
+          }
+        }
+      }
+
+      tiles[index] = sanitized;
       persisted.tilesByDevice[deviceId] = tiles;
       save();
       sendToRenderer();
@@ -1230,6 +1419,132 @@ export const startBridge = async (): Promise<void> => {
     sendToRenderer();
     return snapshot();
   });
+  ipcMain.handle(
+    'bridge:move-tile',
+    (_event, fromIndex: unknown, toIndex: unknown): BridgeSnapshot => {
+      const deviceId = persisted.activeDeviceId;
+      if (
+        !deviceId ||
+        typeof fromIndex !== 'number' ||
+        typeof toIndex !== 'number' ||
+        !Number.isInteger(fromIndex) ||
+        !Number.isInteger(toIndex) ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex === toIndex
+      ) {
+        return snapshot();
+      }
+      const tiles = tilesFor(deviceId).slice();
+      if (fromIndex >= tiles.length || toIndex >= tiles.length) {
+        return snapshot();
+      }
+      const source = tiles[fromIndex];
+      const target = tiles[toIndex];
+
+      if (source) {
+        const destSlot = toIndex % GRID_SLOTS;
+        const destCol = destSlot % GRID_COLUMNS;
+        const destRow = Math.floor(destSlot / GRID_COLUMNS);
+        const maxCol = GRID_COLUMNS - destCol;
+        const maxRow = GRID_ROWS - destRow;
+        source.colSpan = Math.max(1, Math.min(maxCol, source.colSpan ?? 1));
+        source.rowSpan = Math.max(1, Math.min(maxRow, source.rowSpan ?? 1));
+
+        // Clear any slots covered by the source at its new destination
+        const destPageStart = Math.floor(toIndex / GRID_SLOTS) * GRID_SLOTS;
+        for (let r = 0; r < source.rowSpan; r++) {
+          for (let c = 0; c < source.colSpan; c++) {
+            if (r !== 0 || c !== 0) {
+              const cov =
+                destPageStart + (destRow + r) * GRID_COLUMNS + (destCol + c);
+              if (cov < tiles.length && cov !== fromIndex) {
+                tiles[cov] = null;
+              }
+            }
+          }
+        }
+      }
+
+      tiles[fromIndex] = target;
+      tiles[toIndex] = source;
+      persisted.tilesByDevice[deviceId] = tiles;
+      save();
+      sendToRenderer();
+      pushDeck(deviceId);
+      return snapshot();
+    },
+  );
+  ipcMain.handle(
+    'bridge:resize-tile',
+    (_event, index: unknown, colSpan: unknown, rowSpan: unknown): BridgeSnapshot => {
+      const deviceId = persisted.activeDeviceId;
+      if (
+        !deviceId ||
+        typeof index !== 'number' ||
+        !Number.isInteger(index) ||
+        index < 0
+      ) {
+        return snapshot();
+      }
+      const tiles = tilesFor(deviceId).slice();
+      if (index >= tiles.length || !tiles[index]) {
+        return snapshot();
+      }
+      const target = tiles[index];
+      if (target) {
+        const slotInPage = index % GRID_SLOTS;
+        const slotCol = slotInPage % GRID_COLUMNS;
+        const slotRow = Math.floor(slotInPage / GRID_COLUMNS);
+        const maxColSpan = GRID_COLUMNS - slotCol;
+        const maxRowSpan = GRID_ROWS - slotRow;
+        const reqCol =
+          typeof colSpan === 'number'
+            ? Math.round(colSpan)
+            : (target.colSpan ?? 1);
+        const reqRow =
+          typeof rowSpan === 'number'
+            ? Math.round(rowSpan)
+            : (target.rowSpan ?? 1);
+        const finalCol = Math.max(1, Math.min(maxColSpan, reqCol));
+        const finalRow = Math.max(1, Math.min(maxRowSpan, reqRow));
+
+        // Clear any slots covered by this expanded size
+        const pageStart = Math.floor(index / GRID_SLOTS) * GRID_SLOTS;
+        for (let r = 0; r < finalRow; r++) {
+          for (let c = 0; c < finalCol; c++) {
+            if (r !== 0 || c !== 0) {
+              const coveredSlotIndex =
+                pageStart + (slotRow + r) * GRID_COLUMNS + (slotCol + c);
+              if (coveredSlotIndex < tiles.length) {
+                tiles[coveredSlotIndex] = null;
+              }
+            }
+          }
+        }
+
+        tiles[index] = {
+          ...target,
+          colSpan: finalCol,
+          rowSpan: finalRow,
+        };
+        persisted.tilesByDevice[deviceId] = tiles;
+        save();
+        sendToRenderer();
+        pushDeck(deviceId);
+      }
+      return snapshot();
+    },
+  );
+  ipcMain.handle(
+    'bridge:trigger-widget-action',
+    async (_event, action: unknown, value?: unknown): Promise<void> => {
+      if (typeof action === 'string') {
+        const val = typeof value === 'number' ? value : undefined;
+        await handleWidgetAction(action as WidgetActionType, val);
+      }
+    },
+  );
   ipcMain.handle('bridge:set-appearance', (_event, mode: unknown) => {
     persisted.appearance = mode === 'light' ? 'light' : 'dark';
     save();
@@ -1237,9 +1552,21 @@ export const startBridge = async (): Promise<void> => {
     sendToRenderer();
     return snapshot();
   });
+
+  if (statusTimer) {
+    clearInterval(statusTimer);
+  }
+  statusTimer = setInterval(() => {
+    void pollStatus();
+  }, 1500);
+  void pollStatus();
 };
 
 export const stopBridge = (): Promise<void> => {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
   clearSession();
   closeIconRasterizer();
   for (const { socket } of live.values()) {

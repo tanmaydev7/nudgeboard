@@ -261,6 +261,36 @@ export const sanitizeDeckTile = (
   }
   const id = sanitizeId(raw.id, path);
 
+  const colSpan =
+    typeof raw.colSpan === 'number' && Number.isInteger(raw.colSpan)
+      ? Math.min(4, Math.max(1, raw.colSpan))
+      : undefined;
+  const rowSpan =
+    typeof raw.rowSpan === 'number' && Number.isInteger(raw.rowSpan)
+      ? Math.min(2, Math.max(1, raw.rowSpan))
+      : undefined;
+
+  if (
+    raw.tileType === 'widget' ||
+    raw.widgetType ||
+    path.startsWith('widget:')
+  ) {
+    const widget = (raw.widgetType ??
+      path.replace(/^widget:/, '')) as 'media' | 'volume';
+    if (widget !== 'media' && widget !== 'volume') {
+      return null;
+    }
+    return {
+      id,
+      name,
+      path: `widget:${widget}`,
+      tileType: 'widget',
+      widgetType: widget,
+      colSpan: colSpan ?? (widget === 'media' || widget === 'volume' ? 2 : 1),
+      rowSpan: rowSpan ?? 1,
+    };
+  }
+
   if (
     raw.tileType === 'utility' ||
     raw.utilityAction ||
@@ -277,6 +307,8 @@ export const sanitizeDeckTile = (
       path: `utility:${action}`,
       tileType: 'utility',
       utilityAction: action,
+      colSpan,
+      rowSpan,
     };
   }
 
@@ -297,6 +329,8 @@ export const sanitizeDeckTile = (
       iconPath: flow.iconPath,
       tileType: 'custom',
       customFlow: flow,
+      colSpan,
+      rowSpan,
     };
   }
 
@@ -313,5 +347,7 @@ export const sanitizeDeckTile = (
     path,
     iconPath,
     tileType: 'app',
+    colSpan,
+    rowSpan,
   };
 };

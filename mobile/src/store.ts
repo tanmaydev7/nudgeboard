@@ -6,7 +6,9 @@ import {
   formatFingerprint,
   normalizeDeck,
   type DeckTileView,
+  type MediaState,
   type PairingPayload,
+  type VolumeState,
 } from './protocol';
 import { secureProfileStorage } from './secureStore';
 import type { ThemeMode } from './theme/colors';
@@ -47,10 +49,14 @@ type AppState = {
   status: 'idle' | 'connecting' | 'connected';
   deck: Array<DeckTileView | null>;
   hasDeck: boolean;
+  mediaState: MediaState | null;
+  volumeState: VolumeState;
   setScreen: (screen: ScreenName) => void;
   setError: (error: string | null) => void;
   setStatus: (status: AppState['status']) => void;
   setDeck: (tiles: Array<DeckTileView | null>) => void;
+  setMediaState: (state: MediaState | null) => void;
+  setVolumeState: (state: VolumeState) => void;
   startPairing: (payload: PairingPayload, otp: string) => void;
   startPinPairing: (pin: string) => void;
   finishPairing: (
@@ -163,10 +169,14 @@ export const useAppStore = create<AppState>()(
       status: 'idle',
       deck: emptyDeck(),
       hasDeck: false,
+      mediaState: null,
+      volumeState: { volume: 50, isMuted: false },
       setScreen: (screen) => set({ screen, error: null }),
       setError: (error) => set({ error }),
       setStatus: (status) => set({ status }),
       setDeck: (tiles) => set({ deck: normalizeDeck(tiles), hasDeck: true }),
+      setMediaState: (mediaState) => set({ mediaState }),
+      setVolumeState: (volumeState) => set({ volumeState }),
       startPairing: (payload, otp) =>
         set({
           pairing: {

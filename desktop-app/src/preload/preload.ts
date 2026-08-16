@@ -5,6 +5,7 @@ import type {
   ElectronAPI,
   VerifyResult,
 } from '../shared/ipc-types';
+import type { MediaState, VolumeState } from '../shared/protocol';
 
 const api: ElectronAPI = {
   platform: process.platform,
@@ -31,6 +32,10 @@ const api: ElectronAPI = {
     >,
   setTile: (index, tile) =>
     ipcRenderer.invoke('bridge:set-tile', index, tile) as Promise<BridgeSnapshot>,
+  moveTile: (fromIndex, toIndex) =>
+    ipcRenderer.invoke('bridge:move-tile', fromIndex, toIndex) as Promise<BridgeSnapshot>,
+  resizeTile: (index, colSpan, rowSpan) =>
+    ipcRenderer.invoke('bridge:resize-tile', index, colSpan, rowSpan) as Promise<BridgeSnapshot>,
   addPage: () => ipcRenderer.invoke('bridge:add-page') as Promise<BridgeSnapshot>,
   removePage: (page) =>
     ipcRenderer.invoke('bridge:remove-page', page) as Promise<BridgeSnapshot>,
@@ -43,6 +48,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('bridge:browse-file', filter),
   setAppearance: (mode) =>
     ipcRenderer.invoke('bridge:set-appearance', mode) as Promise<BridgeSnapshot>,
+  triggerWidgetAction: (action, value) =>
+    ipcRenderer.invoke('bridge:trigger-widget-action', action, value) as Promise<void>,
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {
       callback(snapshot);
@@ -50,6 +57,24 @@ const api: ElectronAPI = {
     ipcRenderer.on('bridge:snapshot', listener);
     return () => {
       ipcRenderer.removeListener('bridge:snapshot', listener);
+    };
+  },
+  onMediaState: (callback) => {
+    const listener = (_event: unknown, state: MediaState | null) => {
+      callback(state);
+    };
+    ipcRenderer.on('bridge:media-state', listener);
+    return () => {
+      ipcRenderer.removeListener('bridge:media-state', listener);
+    };
+  },
+  onVolumeState: (callback) => {
+    const listener = (_event: unknown, state: VolumeState) => {
+      callback(state);
+    };
+    ipcRenderer.on('bridge:volume-state', listener);
+    return () => {
+      ipcRenderer.removeListener('bridge:volume-state', listener);
     };
   },
 };

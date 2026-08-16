@@ -148,11 +148,17 @@ type ClientMessage =
       type: 'press';
       id: string;             // Identifier of the app/shortcut tile
     }
-  // 6. Logout / Unpair
+  // 6. Trigger interactive widget action
+  | {
+      type: 'widget_action';
+      action: 'media_play_pause' | 'media_next' | 'media_prev' | 'media_stop' | 'set_volume' | 'toggle_mute';
+      value?: number;         // E.g. volume level 0..100
+    }
+  // 7. Logout / Unpair
   | {
       type: 'logout';
     }
-  // 7. Encrypted frame wrapper (press, logout, etc.)
+  // 8. Encrypted frame wrapper (press, widget_action, logout, etc.)
   | EncryptedEnvelope;
 ```
 
@@ -188,9 +194,33 @@ type ServerMessage =
         id: string;
         name: string;
         icon?: string;        // Base64 PNG data URL ('data:image/png;base64,...')
+        tileType?: 'app' | 'utility' | 'custom' | 'widget';
+        widgetType?: 'media' | 'volume';
+        colSpan?: number;     // 1..4 (default 1)
+        rowSpan?: number;     // 1..2 (default 1)
       } | null>;
     }
-  // Encrypted frame wrapper (deck, logged_out, etc.)
+  // Real-time OS media playback state
+  | {
+      type: 'media_state';
+      state: {
+        title: string;
+        artist: string;
+        album?: string;
+        sourceApp?: string;   // E.g. 'Spotify', 'Apple Music', 'YouTube'
+        isPlaying: boolean;
+        artwork?: string;     // Base64 PNG/JPEG data URL
+      } | null;
+    }
+  // Real-time OS master volume state
+  | {
+      type: 'volume_state';
+      state: {
+        volume: number;       // 0..100
+        isMuted: boolean;
+      };
+    }
+  // Encrypted frame wrapper (deck, media_state, volume_state, logged_out, etc.)
   | EncryptedEnvelope;
 ```
 

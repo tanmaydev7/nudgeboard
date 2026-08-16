@@ -16,7 +16,9 @@ import {
   type DeckTileView,
   type DeviceHello,
   type HelloOk,
+  type MediaState,
   type ServerMessage,
+  type VolumeState,
 } from './protocol';
 import { useAppStore } from './store';
 
@@ -78,6 +80,8 @@ export function connectBridge(
   handlers: {
     onConnected: (ok: HelloOk) => void;
     onDeck: (tiles: Array<DeckTileView | null>) => void;
+    onMediaState?: (state: MediaState | null) => void;
+    onVolumeState?: (state: VolumeState) => void;
     onError: (reason: string) => void;
     onClose: () => void;
     onLoggedOut?: () => void;
@@ -173,6 +177,14 @@ export function connectBridge(
         handlers.onDeck(decrypted.tiles);
         return;
       }
+      if (decrypted.type === 'media_state') {
+        handlers.onMediaState?.(decrypted.state);
+        return;
+      }
+      if (decrypted.type === 'volume_state') {
+        handlers.onVolumeState?.(decrypted.state);
+        return;
+      }
       if (decrypted.type === 'logged_out') {
         handlers.onLoggedOut?.();
         ws.close();
@@ -209,6 +221,17 @@ export function connectBridge(
 
     if (payload.type === 'deck') {
       handlers.onDeck(payload.tiles);
+      return;
+    }
+
+    if (payload.type === 'media_state') {
+      handlers.onMediaState?.(payload.state);
+      return;
+    }
+
+    if (payload.type === 'volume_state') {
+      handlers.onVolumeState?.(payload.state);
+      return;
     }
   };
 

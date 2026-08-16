@@ -40,6 +40,50 @@ export type DecryptedReconnect = {
   ts: number;
 };
 
+export type WidgetType = 'media' | 'volume';
+
+export type DeckTileType = 'app' | 'utility' | 'custom' | 'widget';
+
+export type DeckTileView = {
+  id: string;
+  name: string;
+  icon?: string;
+  tileType?: DeckTileType;
+  widgetType?: WidgetType;
+  colSpan?: number;
+  rowSpan?: number;
+};
+
+export type MediaState = {
+  title: string;
+  artist: string;
+  album?: string;
+  sourceApp?: string;
+  artwork?: string;
+  isPlaying: boolean;
+  canPlay?: boolean;
+  canPause?: boolean;
+  canNext?: boolean;
+  canPrev?: boolean;
+  positionSec?: number;
+  durationSec?: number;
+  updatedAt?: number;
+  sessionId?: string;
+};
+
+export type VolumeState = {
+  volume: number;
+  isMuted: boolean;
+};
+
+export type WidgetActionType =
+  | 'media_play_pause'
+  | 'media_next'
+  | 'media_prev'
+  | 'media_stop'
+  | 'set_volume'
+  | 'toggle_mute';
+
 export type ClientMessage =
   | {
       type: 'hello';
@@ -70,15 +114,15 @@ export type ClientMessage =
       id: string;
     }
   | {
+      type: 'widget_action';
+      action: WidgetActionType;
+      value?: number;
+      id?: string;
+    }
+  | {
       type: 'logout';
     }
   | EncryptedEnvelope;
-
-export type DeckTileView = {
-  id: string;
-  name: string;
-  icon?: string;
-};
 
 export type HelloOk = {
   type: 'hello_ok';
@@ -100,6 +144,14 @@ export type ServerMessage =
       columns: number;
       rows: number;
       tiles: Array<DeckTileView | null>;
+    }
+  | {
+      type: 'media_state';
+      state: MediaState | null;
+    }
+  | {
+      type: 'volume_state';
+      state: VolumeState;
     }
   | EncryptedEnvelope;
 
@@ -333,6 +385,28 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return null;
     }
     return { type: 'press', id };
+  }
+  if (message.type === 'widget_action') {
+    const act = raw as { action?: unknown; value?: unknown; id?: unknown };
+    if (
+      typeof act.action === 'string' &&
+      act.action.length > 0 &&
+      act.action.length <= 64
+    ) {
+      const value =
+        typeof act.value === 'number' && Number.isFinite(act.value)
+          ? act.value
+          : undefined;
+      const id =
+        typeof act.id === 'string' && act.id.length <= 128 ? act.id : undefined;
+      return {
+        type: 'widget_action',
+        action: act.action as WidgetActionType,
+        value,
+        id,
+      };
+    }
+    return null;
   }
   if (message.type === 'hello') {
     const body = raw as { token?: unknown; otp?: unknown; device?: unknown };
