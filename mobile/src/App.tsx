@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { findPairingHost } from './lan';
 import { connectBridge, getDeviceInfo } from './pairing';
-import type { ClientMessage } from './protocol';
+import { isPrivateLanHost, type ClientMessage } from './protocol';
 import { DeckScreen } from './screens/DeckScreen';
 import { ManualCodeScreen } from './screens/ManualCodeScreen';
 import { PairCodeScreen } from './screens/PairCodeScreen';
@@ -72,6 +72,11 @@ function useBridgeConnection() {
 
     const attach = (host: string, port: number, message: ClientMessage) => {
       if (cancelled) {
+        return;
+      }
+      if (!isPrivateLanHost(host)) {
+        setError('That computer address is not on your local network.');
+        setStatus('idle');
         return;
       }
       connectionRef.current?.close();

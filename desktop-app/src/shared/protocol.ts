@@ -62,7 +62,8 @@ export type ServerMessage =
       type: 'hello_ok';
       hostName: string;
       fingerprint: string;
-      token: string;
+      /** Issued once after a successful pair. Omitted on reconnect. */
+      token?: string;
       host: string;
       port: number;
       os: string;
@@ -128,6 +129,35 @@ export function formatFingerprint(bytes: ArrayLike<number>): string {
     .join(':');
 }
 
+export function isPrivateLanHost(host: string): boolean {
+  const ip = host.trim().toLowerCase();
+  if (ip === 'localhost' || ip === '127.0.0.1') {
+    return true;
+  }
+  const parts = ip.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return false;
+  }
+  const octets = parts.map(Number);
+  if (octets.some((value) => value > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  if (a === 10) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  return false;
+}
+
 export function isPairingPin(value: string): boolean {
   return /^\d{6}$/.test(value);
 }
@@ -174,8 +204,91 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
     typeof payload.token === 'string' &&
     payload.token.length >= 8 &&
     typeof payload.fingerprint === 'string' &&
-    FINGERPRINT_RE.test(payload.fingerprint)
+    FINGERPRINT_RE.test(payload.fingerprint) &&
+    isPrivateLanHost(payload.host)
   );
+}
+
+const isDeviceHello = (value: unknown): value is DeviceHello => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const device = value as Partial<DeviceHello>;
+  return (
+    typeof device.id === 'string' &&
+    device.id.length > 0 &&
+    device.id.length <= 128 &&
+    typeof device.name === 'string' &&
+    device.name.length > 0 &&
+    device.name.length <= 128 &&
+    (device.platform === 'ios' || device.platform === 'android') &&
+    typeof device.model === 'string' &&
+    device.model.length <= 128 &&
+    typeof device.os === 'string' &&
+    device.os.length <= 64 &&
+    typeof device.fingerprint === 'string' &&
+    FINGERPRINT_RE.test(device.fingerprint)
+  );
+};
+
+export function parseClientMessage(raw: unknown): ClientMessage | null {
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const message = raw as { type?: unknown };
+  if (message.type === 'logout') {
+    return { type: 'logout' };
+  }
+  if (message.type === 'press') {
+    const id = (raw as { id?: unknown }).id;
+    if (typeof id !== 'string' || id.length === 0 || id.length > 128) {
+      return null;
+    }
+    return { type: 'press', id };
+  }
+  if (message.type === 'hello') {
+    const body = raw as { token?: unknown; otp?: unknown; device?: unknown };
+    if (
+      typeof body.token !== 'string' ||
+      body.token.length < 8 ||
+      body.token.length > 128 ||
+      typeof body.otp !== 'string' ||
+      !/^\d{6}$/.test(body.otp) ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return {
+      type: 'hello',
+      token: body.token,
+      otp: body.otp,
+      device: body.device,
+    };
+  }
+  if (message.type === 'hello_pin') {
+    const body = raw as { pin?: unknown; device?: unknown };
+    if (
+      typeof body.pin !== 'string' ||
+      !/^\d{6}$/.test(body.pin) ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return { type: 'hello_pin', pin: body.pin, device: body.device };
+  }
+  if (message.type === 'reconnect') {
+    const body = raw as { token?: unknown; device?: unknown };
+    if (
+      typeof body.token !== 'string' ||
+      body.token.length < 8 ||
+      body.token.length > 128 ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return { type: 'reconnect', token: body.token, device: body.device };
+  }
+  return null;
 }
 
 const parseCompact = (raw: string): PairingPayload | null => {

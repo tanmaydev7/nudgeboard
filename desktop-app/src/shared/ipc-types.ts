@@ -5,7 +5,7 @@ export const GRID_ROWS = 2;
 export const GRID_SLOTS = GRID_COLUMNS * GRID_ROWS;
 export const MAX_PAGES = 8;
 
-export type PairingStep = 'qr' | 'otp';
+export type PairingStep = 'qr' | 'otp' | 'confirm';
 
 export type PendingDevice = {
   id: string;
@@ -15,6 +15,7 @@ export type PendingDevice = {
   platform: DevicePlatform;
   fingerprint: string;
   ip: string;
+  via: 'otp' | 'pin';
 };
 
 export type PairingSession = {
@@ -127,6 +128,8 @@ export type CustomFlow = {
   iconPath?: string;
   iconPreset?: string;
   iconDataUrl?: string;
+  /** When false (default), .ps1/.bat/.cmd/.sh launch steps are skipped. */
+  allowScripts?: boolean;
   steps: FlowStep[];
 };
 
@@ -219,6 +222,7 @@ export interface ElectronAPI {
   generateQr: () => Promise<BridgeSnapshot>;
   cancelPairing: () => Promise<BridgeSnapshot>;
   verifyOtp: (otp: string) => Promise<VerifyResult>;
+  acceptPending: () => Promise<VerifyResult>;
   setActiveDevice: (id: string) => Promise<BridgeSnapshot>;
   listApps: () => Promise<DesktopApp[]>;
   getAppIcons: (paths: string[]) => Promise<Record<string, string>>;

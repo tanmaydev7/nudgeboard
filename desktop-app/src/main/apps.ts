@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { basename, dirname, extname, join } from 'path';
+import { basename, dirname, extname, isAbsolute, join } from 'path';
 import { promisify } from 'util';
 import { readdir, readFile } from 'fs/promises';
 import { app, nativeImage, shell, type NativeImage } from 'electron';
@@ -600,8 +600,13 @@ export const listDesktopApps = async (): Promise<DesktopApp[]> => {
   return uniqueByName(apps.filter((app) => app.name.length > 0));
 };
 
+const BLOCKED_PROTOCOL = /^(file|javascript|data|vbscript|about|blob):/i;
+
 export const launchDesktopApp = async (target: string): Promise<void> => {
   if (!target) {
+    return;
+  }
+  if (BLOCKED_PROTOCOL.test(target)) {
     return;
   }
   if (process.platform === 'win32' && isShellAppPath(target)) {
@@ -609,7 +614,21 @@ export const launchDesktopApp = async (target: string): Promise<void> => {
     return;
   }
   if (isProtocolLaunch(target)) {
-    await shell.openExternal(target);
+    const scheme = target.slice(0, target.indexOf(':')).toLowerCase();
+    if (scheme === 'https' || scheme === 'mailto') {
+      await shell.openExternal(target);
+      return;
+    }
+    if (
+      scheme !== 'http' &&
+      !scheme.startsWith('ms-') &&
+      /^[a-z][a-z0-9+.-]{1,31}$/.test(scheme)
+    ) {
+      await shell.openExternal(target);
+    }
+    return;
+  }
+  if (!isAbsolute(target) || !existsSync(target)) {
     return;
   }
   const error = await shell.openPath(target);

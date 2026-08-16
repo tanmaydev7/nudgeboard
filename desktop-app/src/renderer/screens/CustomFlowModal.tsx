@@ -37,6 +37,7 @@ export function CustomFlowModal({
   const [steps, setSteps] = useState<FlowStep[]>([]);
   const [recordingIndex, setRecordingIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [allowScripts, setAllowScripts] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -50,12 +51,14 @@ export function CustomFlowModal({
             ? JSON.parse(JSON.stringify(initialFlow.steps))
             : [{ type: 'launch', path: '', args: '' }],
         );
+        setAllowScripts(initialFlow.allowScripts === true);
       } else {
         setName('');
         setIconPreset('terminal');
         setIconPath('');
         setIconDataUrl('');
         setSteps([{ type: 'launch', path: '', args: '' }]);
+        setAllowScripts(false);
       }
       setRecordingIndex(null);
       setError(null);
@@ -249,6 +252,7 @@ export function CustomFlowModal({
         iconPreset: iconPreset || undefined,
         iconPath: iconPath || undefined,
         iconDataUrl: baked || iconDataUrl || undefined,
+        allowScripts,
         steps,
       };
       onSave(flow);
@@ -660,7 +664,7 @@ export function CustomFlowModal({
                             <input
                               type="number"
                               min={50}
-                              max={10000}
+                              max={30000}
                               step={50}
                               className="flow-input delay-input"
                               value={step.ms}
@@ -723,12 +727,22 @@ export function CustomFlowModal({
         </div>
 
         <div className="flow-modal-footer">
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn-primary" onClick={handleSave}>
-            Save Custom Action
-          </button>
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={allowScripts}
+              onChange={(e) => setAllowScripts(e.target.checked)}
+            />
+            <span>Allow scripts (.ps1, .bat, .cmd, .sh)</span>
+          </label>
+          <div className="flow-modal-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={handleSave}>
+              Save Custom Action
+            </button>
+          </div>
         </div>
       </div>
     </div>

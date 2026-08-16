@@ -27,7 +27,7 @@ const App = () => {
 
   useEffect(() => {
     const step = snapshot?.pairing?.step;
-    if (step === 'qr' || step === 'otp') {
+    if (step === 'qr' || step === 'otp' || step === 'confirm') {
       setView(step);
       return;
     }
@@ -44,7 +44,7 @@ const App = () => {
         </div>
       )}
       {view === 'qr' ? <QrScreen /> : null}
-      {view === 'otp' ? <OtpScreen /> : null}
+      {view === 'otp' || view === 'confirm' ? <OtpScreen /> : null}
       {view === 'home' ? <HomeScreen /> : null}
     </main>
   );

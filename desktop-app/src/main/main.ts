@@ -236,6 +236,13 @@ const createWindow = (): void => {
   });
 
   void win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url !== MAIN_WINDOW_WEBPACK_ENTRY) {
+      event.preventDefault();
+    }
+  });
 };
 
 // Ensure single instance lock so duplicate processes aren't spawned

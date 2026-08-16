@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { BridgeSnapshot } from '../shared/ipc-types';
 
-export type View = 'qr' | 'otp' | 'home';
+export type View = 'qr' | 'otp' | 'confirm' | 'home';
 export {
   GRID_COLUMNS,
   GRID_ROWS,

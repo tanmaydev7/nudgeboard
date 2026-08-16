@@ -13,6 +13,8 @@ const api: ElectronAPI = {
   cancelPairing: () => ipcRenderer.invoke('bridge:cancel-pairing'),
   verifyOtp: (otp) =>
     ipcRenderer.invoke('bridge:verify-otp', otp) as Promise<VerifyResult>,
+  acceptPending: () =>
+    ipcRenderer.invoke('bridge:accept-pending') as Promise<VerifyResult>,
   setActiveDevice: (id) => ipcRenderer.invoke('bridge:set-active-device', id),
   listApps: () => ipcRenderer.invoke('bridge:list-apps') as Promise<DesktopApp[]>,
   getAppIcons: (paths) =>

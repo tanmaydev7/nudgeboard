@@ -78,28 +78,61 @@ export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
     setPage(next);
   };
 
+  const pageDots = Array.from({ length: pages }, (_, index) => (
+    <Pressable
+      key={index}
+      onPress={() => goToPage(index)}
+      style={styles.dotHit}
+      accessibilityLabel={`Page ${index + 1}`}
+    >
+      <View style={[styles.dot, index === page ? styles.dotOn : null]} />
+    </Pressable>
+  ));
+
   return (
     <View style={styles.shell}>
+      <Pressable
+        onPress={() => drawerRef.current?.open()}
+        accessibilityLabel={live ? 'Connected' : 'Disconnected'}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.statusHit,
+          pressed ? styles.pressed : null,
+        ]}
+      >
+        <View
+          style={[styles.statusDot, live ? styles.statusOn : styles.statusOff]}
+        />
+      </Pressable>
       <View
         style={[
           styles.content,
           landscape ? styles.landscape : null,
-          { paddingBottom: DRAWER_PEEK + bottomGap },
+          {
+            paddingTop: landscape ? spacing.sm : spacing.md,
+            paddingBottom: DRAWER_PEEK + bottomGap,
+          },
         ]}
       >
-        <Pressable
-          onPress={() => drawerRef.current?.open()}
-          style={({ pressed }) => [styles.top, pressed ? styles.pressed : null]}
+        {landscape ? null : (
+          <>
+            <Pressable
+              onPress={() => drawerRef.current?.open()}
+              style={({ pressed }) => [
+                styles.top,
+                pressed ? styles.pressed : null,
+              ]}
+            >
+              <Text style={styles.title} numberOfLines={1}>
+                {name}
+              </Text>
+            </Pressable>
+            <Text style={styles.hint}>Stay on the same Wi-Fi as your PC.</Text>
+          </>
+        )}
+        <View
+          style={[styles.carousel, landscape ? styles.carouselLandscape : null]}
         >
-          <Text style={styles.title} numberOfLines={1}>
-            {name}
-          </Text>
-          <Text style={live ? styles.linked : styles.offline}>
-            {live ? '• linked' : '• not connected'}
-          </Text>
-        </Pressable>
-        <Text style={styles.hint}>Stay on the same Wi-Fi as your PC.</Text>
-        <View style={styles.carousel}>
           <View style={styles.pager} onLayout={onLayout}>
             {box ? (
               <ScrollView
@@ -123,19 +156,8 @@ export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
               </ScrollView>
             ) : null}
           </View>
-          <View style={styles.dots}>
-            {Array.from({ length: pages }, (_, index) => (
-              <Pressable
-                key={index}
-                onPress={() => goToPage(index)}
-                style={styles.dotHit}
-                accessibilityLabel={`Page ${index + 1}`}
-              >
-                <View
-                  style={[styles.dot, index === page ? styles.dotOn : null]}
-                />
-              </Pressable>
-            ))}
+          <View style={[styles.dots, landscape ? styles.dotsLandscape : null]}>
+            {pageDots}
           </View>
         </View>
       </View>
@@ -158,33 +180,41 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
     paddingBottom: 0,
     gap: spacing.sm,
   },
   landscape: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    gap: 0,
+  },
+  statusHit: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 20,
+    padding: 8,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statusOn: {
+    backgroundColor: palette.green,
+  },
+  statusOff: {
+    backgroundColor: '#f87171',
   },
   top: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
+    paddingRight: 28,
   },
   title: {
     flex: 1,
     color: palette.text,
     fontSize: 22,
     fontWeight: '800',
-  },
-  linked: {
-    color: palette.green,
-    fontWeight: '700',
-  },
-  offline: {
-    color: '#f87171',
-    fontWeight: '700',
   },
   hint: {
     color: palette.muted,
@@ -198,6 +228,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
     gap: spacing.sm,
   },
+  carouselLandscape: {
+    gap: 2,
+  },
   pager: {
     flex: 1,
     minHeight: 0,
@@ -207,6 +240,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
+  },
+  dotsLandscape: {
+    paddingBottom: 2,
   },
   dotHit: {
     padding: 6,

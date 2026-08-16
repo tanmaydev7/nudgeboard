@@ -16,13 +16,7 @@ const isBitmapIcon = (uri?: string): boolean => {
     return false;
   }
   return (
-    uri.startsWith('data:image/png') ||
-    uri.startsWith('data:image/jpeg') ||
-    uri.startsWith('data:image/jpg') ||
-    uri.startsWith('data:image/webp') ||
-    uri.startsWith('http://') ||
-    uri.startsWith('https://') ||
-    uri.startsWith('file:')
+    uri.startsWith('data:image/') || uri.startsWith('https://')
   );
 };
 

@@ -60,7 +60,8 @@ export type HelloOk = {
   type: 'hello_ok';
   hostName: string;
   fingerprint: string;
-  token: string;
+  /** Issued once after a successful pair. Omitted on reconnect. */
+  token?: string;
   host: string;
   port: number;
   os: string;
@@ -129,6 +130,35 @@ export function formatFingerprint(bytes: ArrayLike<number>): string {
     .join(':');
 }
 
+export function isPrivateLanHost(host: string): boolean {
+  const ip = host.trim().toLowerCase();
+  if (ip === 'localhost' || ip === '127.0.0.1') {
+    return true;
+  }
+  const parts = ip.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return false;
+  }
+  const octets = parts.map(Number);
+  if (octets.some((value) => value > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  if (a === 10) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  return false;
+}
+
 export function isPairingPin(value: string): boolean {
   return /^\d{6}$/.test(value);
 }
@@ -181,7 +211,8 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
     typeof payload.token === 'string' &&
     payload.token.length >= 8 &&
     typeof payload.fingerprint === 'string' &&
-    FINGERPRINT_RE.test(payload.fingerprint)
+    FINGERPRINT_RE.test(payload.fingerprint) &&
+    isPrivateLanHost(payload.host)
   );
 }
 

@@ -9,6 +9,12 @@ import type {
   UtilityAction,
 } from '../shared/ipc-types';
 import { launchDesktopApp } from './apps';
+import {
+  isAllowedKeyName,
+  isScriptPath,
+  MAX_DELAY_MS,
+  MIN_DELAY_MS,
+} from './validate';
 
 const execFileAsync = promisify(execFile);
 
@@ -525,6 +531,7 @@ if ($hwnd -ne [IntPtr]::Zero) {
 
 type FlowExecContext = {
   lastLaunchProcess?: string;
+  allowScripts?: boolean;
 };
 
 export const executeShortcut = async (
@@ -595,6 +602,9 @@ export const executeShortcut = async (
     const modifiers: string[] = [];
     const plain: string[] = [];
     for (const key of keys) {
+      if (!isAllowedKeyName(key)) {
+        return;
+      }
       const lower = key.toLowerCase();
       if (lower === 'cmd' || lower === 'command' || lower === 'meta') {
         modifiers.push('command down');
@@ -605,16 +615,24 @@ export const executeShortcut = async (
       } else if (lower === 'alt' || lower === 'option') {
         modifiers.push('option down');
       } else {
-        plain.push(key);
+        plain.push(lower);
       }
     }
-    const targetKey = plain[0] ?? '';
+    const targetKey = plain[0];
+    if (!targetKey) {
+      return;
+    }
     const usingClause =
       modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
     try {
       await execFileAsync('osascript', [
         '-e',
-        `tell application "System Events" to keystroke "${targetKey}"${usingClause}`,
+        'on run argv',
+        '-e',
+        `tell application "System Events" to keystroke (item 1 of argv)${usingClause}`,
+        '-e',
+        'end run',
+        targetKey,
       ]);
     } catch {
       // ignore
@@ -622,19 +640,29 @@ export const executeShortcut = async (
     return;
   }
 
-  // Linux
-  const linuxCombo = keys
-    .map((k) => {
-      const l = k.toLowerCase();
-      if (l === 'ctrl' || l === 'control') return 'ctrl';
-      if (l === 'shift') return 'shift';
-      if (l === 'alt') return 'alt';
-      if (l === 'win' || l === 'meta' || l === 'super') return 'super';
-      return k;
-    })
-    .join('+');
+  const linuxParts: string[] = [];
+  for (const key of keys) {
+    if (!isAllowedKeyName(key)) {
+      return;
+    }
+    const lower = key.toLowerCase();
+    if (lower === 'ctrl' || lower === 'control') {
+      linuxParts.push('ctrl');
+    } else if (lower === 'shift') {
+      linuxParts.push('shift');
+    } else if (lower === 'alt') {
+      linuxParts.push('alt');
+    } else if (lower === 'win' || lower === 'meta' || lower === 'super') {
+      linuxParts.push('super');
+    } else {
+      linuxParts.push(lower);
+    }
+  }
+  if (linuxParts.length === 0) {
+    return;
+  }
   try {
-    await execFileAsync('sh', ['-c', `xdotool key ${linuxCombo}`]);
+    await execFileAsync('xdotool', ['key', linuxParts.join('+')]);
   } catch {
     // ignore
   }
@@ -645,7 +673,7 @@ export const executeFlowStep = async (
   ctx: FlowExecContext = {},
 ): Promise<void> => {
   if (step.type === 'delay') {
-    await sleep(Math.max(10, step.ms));
+    await sleep(Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, step.ms)));
     return;
   }
 
@@ -670,9 +698,13 @@ export const executeFlowStep = async (
     const lower = rawPath.toLowerCase();
     ctx.lastLaunchProcess = processNameFromLaunchPath(rawPath);
 
+    if (isScriptPath(rawPath) && !ctx.allowScripts) {
+      return;
+    }
+
     // PowerShell script
     if (lower.endsWith('.ps1')) {
-      spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', rawPath, ...args], {
+      spawn('powershell.exe', ['-NoProfile', '-File', rawPath, ...args], {
         detached: true,
         stdio: 'ignore',
       }).unref();
@@ -732,7 +764,7 @@ export const executeCustomFlow = async (flow: CustomFlow): Promise<void> => {
     return;
   }
 
-  const ctx: FlowExecContext = {};
+  const ctx: FlowExecContext = { allowScripts: flow.allowScripts === true };
   for (let i = 0; i < flow.steps.length; i++) {
     const step = flow.steps[i];
     await executeFlowStep(step, ctx);
@@ -770,11 +802,10 @@ export const executeTile = async (
     tile.customFlow ||
     tile.path?.startsWith('custom:')
   ) {
-    const flow =
-      tile.customFlow ??
-      allFlows.find(
-        (f) => f.id === tile.id || f.id === tile.path.replace(/^custom:/, ''),
-      );
+    const flowId = tile.path?.startsWith('custom:')
+      ? tile.path.replace(/^custom:/, '')
+      : tile.id;
+    const flow = allFlows.find((item) => item.id === flowId);
     if (flow) {
       await executeCustomFlow(flow);
       return;

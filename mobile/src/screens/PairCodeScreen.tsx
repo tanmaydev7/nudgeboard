@@ -33,9 +33,8 @@ export function PairCodeScreen({ onCancel }: Props) {
       {pairing ? (
         <View style={styles.card}>
           <Text style={styles.cardName}>{pairing.payload.name}</Text>
-          <Text style={styles.cardMeta}>
-            {pairing.payload.os} · fingerprint
-          </Text>
+          <Text style={styles.cardMeta}>{pairing.payload.os}</Text>
+          <Text style={styles.cardMeta}>{pairing.payload.host}</Text>
           <Text style={styles.fingerprint}>{pairing.payload.fingerprint}</Text>
         </View>
       ) : null}

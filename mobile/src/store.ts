@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import {
   emptyDeck,
   formatFingerprint,
@@ -9,6 +8,7 @@ import {
   type DeckTileView,
   type PairingPayload,
 } from './protocol';
+import { secureProfileStorage } from './secureStore';
 
 export type ScreenName =
   | 'scan'
@@ -56,7 +56,7 @@ type AppState = {
     hostName: string,
     offer?: {
       fingerprint: string;
-      token: string;
+      token?: string;
       host: string;
       port: number;
       os: string;
@@ -68,20 +68,64 @@ type AppState = {
   cancelPairing: () => void;
 };
 
+type CryptoLike = { getRandomValues?: (array: Uint8Array) => Uint8Array };
+
+const webCrypto = (): CryptoLike | undefined => {
+  const fromGlobalThis = (globalThis as { crypto?: CryptoLike }).crypto;
+  if (typeof fromGlobalThis?.getRandomValues === 'function') {
+    return fromGlobalThis;
+  }
+  const fromGlobal = (globalThis as { global?: { crypto?: CryptoLike } }).global
+    ?.crypto;
+  if (typeof fromGlobal?.getRandomValues === 'function') {
+    return fromGlobal;
+  }
+  return undefined;
+};
+
+const hexToBytes = (hex: string, size: number): Uint8Array | null => {
+  if (hex.length !== size * 2 || /[^0-9a-fA-F]/.test(hex)) {
+    return null;
+  }
+  const bytes = new Uint8Array(size);
+  for (let i = 0; i < size; i += 1) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+};
+
+const randomBytes = (size: number): Uint8Array => {
+  const bytes = new Uint8Array(size);
+  const cryptoApi = webCrypto();
+  if (cryptoApi?.getRandomValues) {
+    cryptoApi.getRandomValues(bytes);
+    return bytes;
+  }
+  const hex = (
+    NativeModules.NudgeDevice as { randomBytesHex?: (n: number) => string }
+  )?.randomBytesHex?.(size);
+  const fromNative = hex ? hexToBytes(hex, size) : null;
+  if (fromNative) {
+    return fromNative;
+  }
+  throw new Error('Secure random generator is unavailable');
+};
+
 export function makeDeviceId(): string {
-  return `${Platform.OS}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${Platform.OS}-${Array.from(randomBytes(16), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')}`;
 }
 
 export function makeFingerprint(): string {
-  return formatFingerprint([
-    Math.floor(Math.random() * 256),
-    Math.floor(Math.random() * 256),
-    Math.floor(Math.random() * 256),
-  ]);
+  return formatFingerprint(randomBytes(3));
 }
 
 export function makeOtp(): string {
-  return String(100000 + Math.floor(Math.random() * 900000));
+  const bytes = randomBytes(4);
+  const value =
+    ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+  return String(100000 + (value % 900000));
 }
 
 export function upsertDesktop(
@@ -147,13 +191,21 @@ export const useAppStore = create<AppState>()(
       finishPairing: (hostName, offer) => {
         const pairing = get().pairing;
         if (pairing) {
+          const token = offer?.token;
+          if (!token) {
+            set({
+              error: 'Desktop did not issue a device token. Pair again.',
+              status: 'idle',
+            });
+            return;
+          }
           const named: DesktopProfile = {
             name: hostName || pairing.payload.name,
-            os: pairing.payload.os,
-            fingerprint: pairing.payload.fingerprint,
-            host: pairing.payload.host,
-            port: pairing.payload.port,
-            token: pairing.payload.token,
+            os: offer?.os || pairing.payload.os,
+            fingerprint: offer?.fingerprint || pairing.payload.fingerprint,
+            host: offer?.host || pairing.payload.host,
+            port: offer?.port || pairing.payload.port,
+            token,
             pairedAt: Date.now(),
           };
           set({
@@ -169,14 +221,25 @@ export const useAppStore = create<AppState>()(
           return;
         }
         if (offer) {
+          const existing = get().profiles.find(
+            (item) => item.fingerprint === offer.fingerprint,
+          );
+          const token = offer.token || existing?.token;
+          if (!token) {
+            set({
+              error: 'Missing device token. Pair again.',
+              status: 'idle',
+            });
+            return;
+          }
           const named: DesktopProfile = {
-            name: hostName || 'Desktop',
+            name: hostName || existing?.name || 'Desktop',
             os: offer.os,
             fingerprint: offer.fingerprint,
             host: offer.host,
             port: offer.port,
-            token: offer.token,
-            pairedAt: Date.now(),
+            token,
+            pairedAt: existing?.pairedAt ?? Date.now(),
           };
           set({
             profiles: upsertDesktop(get().profiles, named),
@@ -259,7 +322,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'nudgeboard-mobile',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => secureProfileStorage),
       partialize: (state) => ({
         deviceId: state.deviceId,
         fingerprint: state.fingerprint,

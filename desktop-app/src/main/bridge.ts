@@ -6,6 +6,7 @@ import { readFile } from 'fs/promises';
 import { BrowserWindow, dialog, ipcMain, nativeImage } from 'electron';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
+import type { Server as HttpServer } from 'http';
 import {
   GRID_COLUMNS,
   GRID_ROWS,
@@ -15,7 +16,6 @@ import {
   normalizeTiles,
   type BridgeSnapshot,
   type BrowseFileResult,
-  type CustomFlow,
   type DeckTile,
   type DeviceProfile,
   type PairingSession,
@@ -29,6 +29,7 @@ import {
   PROTOCOL_VERSION,
   QR_TTL_MS,
   makePairingPin,
+  parseClientMessage,
   type ClientMessage,
   type DeviceHello,
   type PairingPayload,
@@ -46,14 +47,21 @@ import {
 } from './icons';
 import {
   forgetDevice,
+  hashToken,
   loadPersisted,
   savePersisted,
   type PersistedState,
   type StoredDevice,
 } from './persist';
+import { sanitizeCustomFlow, sanitizeDeckTile } from './validate';
 
 const TOKEN_BYTES = 16;
 const QR_SIZE = 280;
+const MAX_WS_PAYLOAD = 64 * 1024;
+const MAX_PAIRING_FAILURES = 8;
+const MAX_IP_FAILURES = 5;
+const IP_BACKOFF_MS = 60_000;
+const MAX_CONNECTS_PER_MIN = 20;
 
 type LiveSocket = {
   socket: WebSocket;
@@ -64,8 +72,9 @@ type LiveSocket = {
 type PendingPair = {
   socket: WebSocket;
   device: DeviceHello;
-  otp: string;
+  otp: string | null;
   ip: string;
+  via: 'otp' | 'pin';
 };
 
 type Session = {
@@ -79,6 +88,7 @@ type Session = {
 };
 
 let wss: WebSocketServer | null = null;
+let httpServer: HttpServer | null = null;
 let port = DEFAULT_PORT;
 let hostName = 'NudgeBoard';
 let hostOs = 'Windows';
@@ -93,6 +103,9 @@ let persisted: PersistedState = {
 let session: Session | null = null;
 let lastPairedId: string | null = null;
 const live = new Map<WebSocket, LiveSocket>();
+let pairingFailures = 0;
+const ipFailures = new Map<string, { count: number; until: number }>();
+const connectHits = new Map<string, number[]>();
 
 const desktopOs = (): string => {
   if (process.platform === 'darwin') {
@@ -172,6 +185,7 @@ const pendingView = (pending: PendingPair): PendingDevice => ({
   platform: pending.device.platform,
   fingerprint: pending.device.fingerprint,
   ip: pending.ip,
+  via: pending.via,
 });
 
 const pairingView = (): PairingSession | null => {
@@ -181,7 +195,7 @@ const pairingView = (): PairingSession | null => {
   return {
     step: session.step,
     qrDataUrl: session.qrDataUrl,
-    payload: session.payload,
+    payload: { ...session.payload, token: '' },
     hostName,
     fingerprint: persisted.fingerprint,
     pairingCode: session.pin,
@@ -355,6 +369,45 @@ const otpMatch = (expected: string, received: string): boolean => {
   return timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
+const secretMatch = (expected: string, received: string): boolean => {
+  const left = Buffer.from(expected);
+  const right = Buffer.from(received);
+  if (left.length === 0 || left.length !== right.length) {
+    return false;
+  }
+  return timingSafeEqual(left, right);
+};
+
+const tokenHashMatch = (token: string, tokenHash: string): boolean =>
+  secretMatch(hashToken(token), tokenHash);
+
+const ipThrottled = (ip: string): boolean => {
+  const entry = ipFailures.get(ip);
+  return Boolean(entry && entry.until > Date.now());
+};
+
+const recordAuthFailure = (ip: string): boolean => {
+  pairingFailures += 1;
+  const current = ipFailures.get(ip);
+  const count = (current?.count ?? 0) + 1;
+  const until = count >= MAX_IP_FAILURES ? Date.now() + IP_BACKOFF_MS : 0;
+  ipFailures.set(ip, { count, until });
+  if (pairingFailures >= MAX_PAIRING_FAILURES) {
+    clearSession('Too many pairing attempts. Generate a new code.');
+    pairingFailures = 0;
+    return true;
+  }
+  return false;
+};
+
+const allowConnection = (ip: string): boolean => {
+  const now = Date.now();
+  const recent = (connectHits.get(ip) ?? []).filter((at) => now - at < 60_000);
+  recent.push(now);
+  connectHits.set(ip, recent);
+  return recent.length <= MAX_CONNECTS_PER_MIN;
+};
+
 const sessionExpired = (): boolean =>
   Boolean(session && session.expiresAt <= Date.now());
 
@@ -412,11 +465,11 @@ const unpairDevice = (id: string): void => {
 const acceptDevice = (
   socket: WebSocket,
   device: DeviceHello,
-  token: string,
   trusted: boolean,
   ip: string,
-): void => {
+): string => {
   dropDeviceId(device.id);
+  const token = randomBytes(TOKEN_BYTES).toString('hex');
   const stored: StoredDevice = {
     id: device.id,
     name: device.name,
@@ -424,7 +477,7 @@ const acceptDevice = (
     os: device.os,
     platform: device.platform,
     fingerprint: device.fingerprint,
-    token,
+    tokenHash: hashToken(token),
     trusted,
     pairedAt: Date.now(),
   };
@@ -444,25 +497,36 @@ const acceptDevice = (
   live.set(socket, { socket, deviceId: device.id, ip });
   send(socket, helloOk(token));
   pushDeck(device.id);
+  return token;
 };
 
-const helloOk = (token: string): Extract<ServerMessage, { type: 'hello_ok' }> => ({
+const helloOk = (
+  token?: string,
+): Extract<ServerMessage, { type: 'hello_ok' }> => ({
   type: 'hello_ok',
   hostName,
   fingerprint: persisted.fingerprint,
-  token,
+  ...(token ? { token } : {}),
   host: selectedHost,
   port,
   os: hostOs,
 });
 
 const handleHello = (socket: WebSocket, message: Extract<ClientMessage, { type: 'hello' }>, ip: string): void => {
+  if (ipThrottled(ip)) {
+    send(socket, { type: 'hello_err', reason: 'Too many attempts. Wait and try again.' });
+    socket.close();
+    return;
+  }
   if (!session || sessionExpired()) {
     send(socket, { type: 'hello_err', reason: 'Pairing code expired. Generate a new QR.' });
     socket.close();
     return;
   }
-  if (message.token !== session.token) {
+  if (!secretMatch(session.token, message.token)) {
+    if (recordAuthFailure(ip)) {
+      return;
+    }
     send(socket, { type: 'hello_err', reason: 'Invalid pairing code' });
     socket.close();
     return;
@@ -472,17 +536,13 @@ const handleHello = (socket: WebSocket, message: Extract<ClientMessage, { type: 
     socket.close();
     return;
   }
-  if (!/^\d{6}$/.test(message.otp)) {
-    send(socket, { type: 'hello_err', reason: 'Invalid code' });
-    socket.close();
-    return;
-  }
 
   session.pending = {
     socket,
     device: message.device,
     otp: message.otp,
     ip,
+    via: 'otp',
   };
   session.step = 'otp';
   session.expiresAt = Date.now() + OTP_TTL_MS;
@@ -494,6 +554,11 @@ const handleHelloPin = (
   message: Extract<ClientMessage, { type: 'hello_pin' }>,
   ip: string,
 ): void => {
+  if (ipThrottled(ip)) {
+    send(socket, { type: 'hello_err', reason: 'Too many attempts. Wait and try again.' });
+    socket.close();
+    return;
+  }
   if (!session || sessionExpired()) {
     send(socket, { type: 'hello_err', reason: 'Pairing code expired. Generate a new QR.' });
     socket.close();
@@ -505,18 +570,45 @@ const handleHelloPin = (
     return;
   }
   if (!otpMatch(session.pin, message.pin.trim())) {
+    if (recordAuthFailure(ip)) {
+      return;
+    }
     send(socket, { type: 'hello_err', reason: 'Invalid pairing code' });
     socket.close();
     return;
   }
 
-  const token = session.token;
+  session.pending = {
+    socket,
+    device: message.device,
+    otp: null,
+    ip,
+    via: 'pin',
+  };
+  session.step = 'confirm';
+  session.expiresAt = Date.now() + OTP_TTL_MS;
+  sendToRenderer();
+};
+
+const finishPending = (): VerifyResult => {
+  if (!session?.pending) {
+    return { ok: false, reason: 'No device is pairing right now' };
+  }
+  if (sessionExpired()) {
+    clearSession('Code expired');
+    sendToRenderer();
+    return { ok: false, reason: 'Code expired. Pair again.' };
+  }
+  const pending = session.pending;
+  session.pending = null;
   session = null;
-  acceptDevice(socket, message.device, token, true, ip);
-  lastPairedId = message.device.id;
-  persisted.activeDeviceId = message.device.id;
+  pairingFailures = 0;
+  acceptDevice(pending.socket, pending.device, true, pending.ip);
+  lastPairedId = pending.device.id;
+  persisted.activeDeviceId = pending.device.id;
   save();
   sendToRenderer();
+  return { ok: true, snapshot: snapshot() };
 };
 
 const handleReconnect = (
@@ -525,7 +617,8 @@ const handleReconnect = (
   ip: string,
 ): void => {
   const stored = persisted.devices.find(
-    (item) => item.id === message.device.id && item.token === message.token,
+    (item) =>
+      item.id === message.device.id && tokenHashMatch(message.token, item.tokenHash),
   );
   if (!stored || !stored.trusted) {
     send(socket, {
@@ -543,7 +636,7 @@ const handleReconnect = (
   save();
   dropDeviceId(stored.id);
   live.set(socket, { socket, deviceId: stored.id, ip });
-  send(socket, helloOk(stored.token));
+  send(socket, helloOk());
   pushDeck(stored.id);
   sendToRenderer();
 };
@@ -576,11 +669,16 @@ const handleLogout = (socket: WebSocket): void => {
 };
 
 const handleMessage = (socket: WebSocket, raw: string): void => {
-  let message: ClientMessage;
+  let parsed: unknown;
   try {
-    message = JSON.parse(raw) as ClientMessage;
+    parsed = JSON.parse(raw);
   } catch {
     send(socket, { type: 'hello_err', reason: 'Invalid message' });
+    return;
+  }
+  const message = parseClientMessage(parsed);
+  if (!message) {
+    send(socket, { type: 'hello_err', reason: 'Unknown message' });
     return;
   }
 
@@ -603,9 +701,7 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   }
   if (message.type === 'logout') {
     handleLogout(socket);
-    return;
   }
-  send(socket, { type: 'hello_err', reason: 'Unknown message' });
 };
 
 const pairingProbe = (req: IncomingMessage, res: ServerResponse): void => {
@@ -635,23 +731,27 @@ const pairingProbe = (req: IncomingMessage, res: ServerResponse): void => {
   res.end();
 };
 
-const listen = async (startPort: number): Promise<number> => {
+const listen = async (startPort: number, bindHost: string): Promise<number> => {
   for (let nextPort = startPort; nextPort < startPort + 20; nextPort += 1) {
     const bound = await new Promise<number | null>((resolve, reject) => {
-      const httpServer = createServer(pairingProbe);
-      const server = new WebSocketServer({ server: httpServer });
-      httpServer.once('error', (error: NodeJS.ErrnoException) => {
-        if (error.code === 'EADDRINUSE') {
-          httpServer.close(() => resolve(null));
+      const nextHttp = createServer(pairingProbe);
+      const server = new WebSocketServer({
+        server: nextHttp,
+        maxPayload: MAX_WS_PAYLOAD,
+      });
+      nextHttp.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EADDRINUSE' || error.code === 'EADDRNOTAVAIL') {
+          nextHttp.close(() => resolve(null));
           return;
         }
         reject(error);
       });
-      httpServer.once('listening', () => {
+      nextHttp.once('listening', () => {
+        httpServer = nextHttp;
         wss = server;
         resolve(nextPort);
       });
-      httpServer.listen(nextPort, '0.0.0.0');
+      nextHttp.listen(nextPort, bindHost);
     });
     if (bound !== null) {
       return bound;
@@ -663,6 +763,7 @@ const listen = async (startPort: number): Promise<number> => {
 const startPairing = async (): Promise<BridgeSnapshot> => {
   selectedHost = listLanHosts()[0] ?? selectedHost;
   clearSession('Pairing restarted');
+  pairingFailures = 0;
   const token = randomBytes(TOKEN_BYTES).toString('hex');
   const pin = makePairingPin(randomBytes(4).readUInt32BE(0));
   const payload = pairingPayload(token);
@@ -691,9 +792,14 @@ export const startBridge = async (): Promise<void> => {
   persisted = loadPersisted();
   save();
   selectedHost = listLanHosts()[0] ?? '127.0.0.1';
-  port = await listen(DEFAULT_PORT);
+  port = await listen(DEFAULT_PORT, selectedHost);
 
-  wss?.on('connection', (socket) => {
+  wss?.on('connection', (socket, req) => {
+    const ip = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '') || 'unknown';
+    if (ipThrottled(ip) || !allowConnection(ip)) {
+      socket.close();
+      return;
+    }
     socket.on('message', (data) => {
       handleMessage(socket, data.toString());
     });
@@ -708,32 +814,30 @@ export const startBridge = async (): Promise<void> => {
     sendToRenderer();
     return snapshot();
   });
-  ipcMain.handle('bridge:verify-otp', (_event, otp: string): VerifyResult => {
-    if (!session?.pending) {
+  ipcMain.handle('bridge:verify-otp', (_event, otp: unknown): VerifyResult => {
+    if (!session?.pending || session.pending.via !== 'otp') {
       return { ok: false, reason: 'No device is pairing right now' };
     }
     if (session.step !== 'otp') {
       return { ok: false, reason: 'Scan the QR code first' };
     }
-    if (sessionExpired()) {
-      clearSession('Code expired');
-      sendToRenderer();
-      return { ok: false, reason: 'Code expired. Pair again.' };
-    }
-    if (!otpMatch(session.pending.otp, otp.trim())) {
+    if (typeof otp !== 'string' || !session.pending.otp) {
       return { ok: false, reason: 'That code does not match' };
     }
-
-    const pending = session.pending;
-    const token = session.token;
-    session.pending = null;
-    session = null;
-    acceptDevice(pending.socket, pending.device, token, true, pending.ip);
-    lastPairedId = pending.device.id;
-    persisted.activeDeviceId = pending.device.id;
-    save();
-    sendToRenderer();
-    return { ok: true, snapshot: snapshot() };
+    if (!otpMatch(session.pending.otp, otp.trim())) {
+      recordAuthFailure(session.pending.ip);
+      return { ok: false, reason: 'That code does not match' };
+    }
+    return finishPending();
+  });
+  ipcMain.handle('bridge:accept-pending', (): VerifyResult => {
+    if (!session?.pending || session.pending.via !== 'pin') {
+      return { ok: false, reason: 'No device is waiting for confirmation' };
+    }
+    if (session.step !== 'confirm') {
+      return { ok: false, reason: 'Enter the code on the phone first' };
+    }
+    return finishPending();
   });
   ipcMain.handle('bridge:set-active-device', (_event, id: string) => {
     if (persisted.devices.some((device) => device.id === id)) {
@@ -751,28 +855,31 @@ export const startBridge = async (): Promise<void> => {
   ipcMain.handle('bridge:get-preset-icons', () => getPresetIconDataUrls());
   ipcMain.handle(
     'bridge:save-custom-flow',
-    (_event, flow: CustomFlow): BridgeSnapshot => {
+    (_event, flow: unknown): BridgeSnapshot => {
+      const sanitized = sanitizeCustomFlow(flow);
+      if (!sanitized) {
+        return snapshot();
+      }
       const list = persisted.customFlows ?? [];
-      const idx = list.findIndex((f) => f.id === flow.id);
+      const idx = list.findIndex((item) => item.id === sanitized.id);
       if (idx >= 0) {
-        list[idx] = flow;
+        list[idx] = sanitized;
       } else {
-        list.push(flow);
+        list.push(sanitized);
       }
       persisted.customFlows = list;
 
-      // Update any active deck tiles referencing this custom flow
       for (const deviceId of Object.keys(persisted.tilesByDevice)) {
         const tiles = persisted.tilesByDevice[deviceId];
         let modified = false;
         for (let i = 0; i < tiles.length; i++) {
           const t = tiles[i];
-          if (t && (t.id === flow.id || t.path === `custom:${flow.id}`)) {
+          if (t && (t.id === sanitized.id || t.path === `custom:${sanitized.id}`)) {
             tiles[i] = {
               ...t,
-              name: flow.name,
-              iconPath: flow.iconPath,
-              customFlow: flow,
+              name: sanitized.name,
+              iconPath: sanitized.iconPath,
+              customFlow: sanitized,
             };
             modified = true;
           }
@@ -895,16 +1002,22 @@ export const startBridge = async (): Promise<void> => {
   );
   ipcMain.handle(
     'bridge:set-tile',
-    (_event, index: number, tile: DeckTile | null) => {
+    (_event, index: unknown, tile: unknown) => {
       const deviceId = persisted.activeDeviceId;
-      if (!deviceId || !Number.isInteger(index) || index < 0) {
+      if (
+        !deviceId ||
+        typeof index !== 'number' ||
+        !Number.isInteger(index) ||
+        index < 0
+      ) {
         return snapshot();
       }
       const tiles = tilesFor(deviceId).slice();
       if (index >= tiles.length) {
         return snapshot();
       }
-      tiles[index] = tile;
+      tiles[index] =
+        tile === null ? null : sanitizeDeckTile(tile, persisted.customFlows);
       persisted.tilesByDevice[deviceId] = tiles;
       save();
       sendToRenderer();
@@ -967,7 +1080,14 @@ export const stopBridge = (): Promise<void> => {
     }
     wss.close(() => {
       wss = null;
-      resolve();
+      if (!httpServer) {
+        resolve();
+        return;
+      }
+      httpServer.close(() => {
+        httpServer = null;
+        resolve();
+      });
     });
   });
 };

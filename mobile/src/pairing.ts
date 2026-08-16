@@ -4,6 +4,7 @@ import {
   type DeviceNameHints,
 } from './deviceIdentity';
 import {
+  isPrivateLanHost,
   parsePairingPayload,
   type ClientMessage,
   type DeckTileView,
@@ -76,6 +77,13 @@ export function connectBridge(
     onLoggedOut?: () => void;
   },
 ): { close: () => void; send: (message: ClientMessage) => void } {
+  if (!isPrivateLanHost(host)) {
+    handlers.onError('That computer address is not on your local network.');
+    return {
+      close: () => undefined,
+      send: () => undefined,
+    };
+  }
   const ws = new WebSocket(`ws://${host}:${port}`);
   let opened = false;
 

@@ -15,8 +15,14 @@ import {
   pageTiles,
   parsePairingPayload,
   PROTOCOL_VERSION,
+  isPrivateLanHost,
 } from '../src/protocol';
-import { upsertDesktop, type DesktopProfile } from '../src/store';
+import {
+  makeDeviceId,
+  makeOtp,
+  upsertDesktop,
+  type DesktopProfile,
+} from '../src/store';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -43,8 +49,8 @@ describe('pairing protocol', () => {
     expect(parsePairingPayload(compact)).toEqual(payload);
   });
 
-  it('rejects a payload without a fingerprint', () => {
-    const rest = { ...payload, fingerprint: undefined };
+  it('rejects a payload whose host is not a private LAN address', () => {
+    const rest = { ...payload, host: '8.8.8.8' };
     expect(() => parsePairingPayload(JSON.stringify(rest))).toThrow(
       'Not a Nudgeboard pairing code',
     );
@@ -60,11 +66,25 @@ describe('pairing protocol', () => {
     expect(formatCountdown(0)).toBe('00:00');
   });
 
+  it('accepts RFC1918 hosts and rejects public ones', () => {
+    expect(isPrivateLanHost('192.168.1.24')).toBe(true);
+    expect(isPrivateLanHost('10.0.0.2')).toBe(true);
+    expect(isPrivateLanHost('172.16.4.1')).toBe(true);
+    expect(isPrivateLanHost('127.0.0.1')).toBe(true);
+    expect(isPrivateLanHost('8.8.8.8')).toBe(false);
+    expect(isPrivateLanHost('example.com')).toBe(false);
+  });
+
   it('accepts a 6-digit pairing pin', () => {
     expect(isPairingPin('482910')).toBe(true);
     expect(isPairingPin('082910')).toBe(true);
     expect(isPairingPin('48291')).toBe(false);
     expect(isPairingPin('4829101')).toBe(false);
+  });
+
+  it('generates pairing ids from a secure rng', () => {
+    expect(makeOtp()).toMatch(/^\d{6}$/);
+    expect(makeDeviceId()).toMatch(/^[a-z]+-[0-9a-f]{32}$/);
   });
 
   it('builds LAN candidates for a /24', () => {
