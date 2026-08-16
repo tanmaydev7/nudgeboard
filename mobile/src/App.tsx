@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StatusBar, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { findPairingHost } from './lan';
 import { connectBridge, getDeviceInfo } from './pairing';
 import type { ClientMessage } from './protocol';
 import { DeckScreen } from './screens/DeckScreen';
@@ -34,6 +35,7 @@ function useBridgeConnection() {
   const connectionRef = useRef<Connection | null>(null);
   const status = useAppStore((s) => s.status);
   const pairing = useAppStore((s) => s.pairing);
+  const pin = useAppStore((s) => s.pin);
   const activeFingerprint = useAppStore((s) => s.activeFingerprint);
   const finishPairing = useAppStore((s) => s.finishPairing);
   const markDisconnected = useAppStore((s) => s.markDisconnected);
@@ -56,19 +58,76 @@ function useBridgeConnection() {
     }
 
     const device = getDeviceInfo();
-    let host = '';
-    let port = 0;
-    let message: ClientMessage;
+    let cancelled = false;
+
+    const attach = (host: string, port: number, message: ClientMessage) => {
+      if (cancelled) {
+        return;
+      }
+      connectionRef.current?.close();
+      const session = connectBridge(host, port, message, {
+        onConnected: (ok) => {
+          if (connectionRef.current !== session) {
+            return;
+          }
+          finishPairing(ok.hostName, {
+            fingerprint: ok.fingerprint,
+            token: ok.token,
+            host: ok.host || host,
+            port: ok.port || port,
+            os: ok.os,
+          });
+        },
+        onDeck: (tiles) => {
+          if (connectionRef.current !== session) {
+            return;
+          }
+          setDeck(tiles);
+        },
+        onError: (reason) => {
+          if (connectionRef.current !== session) {
+            return;
+          }
+          setError(reason);
+          setStatus('idle');
+        },
+        onClose: () => {
+          if (connectionRef.current !== session) {
+            return;
+          }
+          if (useAppStore.getState().status === 'connected') {
+            markDisconnected();
+          }
+        },
+      });
+      connectionRef.current = session;
+    };
 
     if (pairing) {
-      host = pairing.payload.host;
-      port = pairing.payload.port;
-      message = {
+      attach(pairing.payload.host, pairing.payload.port, {
         type: 'hello',
         token: pairing.payload.token,
         otp: pairing.otp,
         device,
-      };
+      });
+    } else if (pin) {
+      void findPairingHost().then((found) => {
+        if (cancelled) {
+          return;
+        }
+        if (!found) {
+          setError(
+            'No pairing PC found. Check the code and that you are on the same Wi-Fi.',
+          );
+          setStatus('idle');
+          return;
+        }
+        attach(found.host, found.port, {
+          type: 'hello_pin',
+          pin,
+          device,
+        });
+      });
     } else {
       const profile = useAppStore
         .getState()
@@ -77,49 +136,20 @@ function useBridgeConnection() {
         setStatus('idle');
         return;
       }
-      host = profile.host;
-      port = profile.port;
-      message = {
+      attach(profile.host, profile.port, {
         type: 'reconnect',
         token: profile.token,
         device,
-      };
+      });
     }
 
-    connectionRef.current?.close();
-    const session = connectBridge(host, port, message, {
-      onConnected: (hostName) => {
-        if (connectionRef.current !== session) {
-          return;
-        }
-        finishPairing(hostName);
-      },
-      onDeck: (tiles) => {
-        if (connectionRef.current !== session) {
-          return;
-        }
-        setDeck(tiles);
-      },
-      onError: (reason) => {
-        if (connectionRef.current !== session) {
-          return;
-        }
-        setError(reason);
-        setStatus('idle');
-      },
-      onClose: () => {
-        if (connectionRef.current !== session) {
-          return;
-        }
-        if (useAppStore.getState().status === 'connected') {
-          markDisconnected();
-        }
-      },
-    });
-    connectionRef.current = session;
+    return () => {
+      cancelled = true;
+    };
   }, [
     status,
     pairing,
+    pin,
     activeFingerprint,
     finishPairing,
     markDisconnected,

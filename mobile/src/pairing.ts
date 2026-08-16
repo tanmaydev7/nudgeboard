@@ -8,6 +8,7 @@ import {
   type ClientMessage,
   type DeckTileView,
   type DeviceHello,
+  type HelloOk,
   type ServerMessage,
 } from './protocol';
 import { useAppStore } from './store';
@@ -68,7 +69,7 @@ export function connectBridge(
   port: number,
   message: ClientMessage,
   handlers: {
-    onConnected: (hostName: string, fingerprint: string) => void;
+    onConnected: (ok: HelloOk) => void;
     onDeck: (tiles: Array<DeckTileView | null>) => void;
     onError: (reason: string) => void;
     onClose: () => void;
@@ -98,7 +99,7 @@ export function connectBridge(
     }
 
     if (payload.type === 'hello_ok') {
-      handlers.onConnected(payload.hostName, payload.fingerprint);
+      handlers.onConnected(payload);
       return;
     }
 

@@ -3,8 +3,11 @@ import {
   APP_ID,
   deckPageCount,
   emptyDeck,
+  fallbackLanCandidates,
   formatCountdown,
   formatFingerprint,
+  isPairingPin,
+  lanCandidates,
   GRID_SLOTS,
   MAX_PAGES,
   normalizeDeck,
@@ -55,6 +58,25 @@ describe('pairing protocol', () => {
     expect(formatCountdown(298_000)).toBe('04:58');
     expect(formatCountdown(72_000)).toBe('01:12');
     expect(formatCountdown(0)).toBe('00:00');
+  });
+
+  it('accepts a 6-digit pairing pin', () => {
+    expect(isPairingPin('482910')).toBe(true);
+    expect(isPairingPin('082910')).toBe(true);
+    expect(isPairingPin('48291')).toBe(false);
+    expect(isPairingPin('4829101')).toBe(false);
+  });
+
+  it('builds LAN candidates for a /24', () => {
+    const hosts = lanCandidates('192.168.1.24');
+    expect(hosts).toHaveLength(253);
+    expect(hosts).toContain('192.168.1.1');
+    expect(hosts).not.toContain('192.168.1.24');
+  });
+
+  it('falls back to common home subnets', () => {
+    expect(fallbackLanCandidates()).toContain('192.168.0.1');
+    expect(fallbackLanCandidates()).toContain('10.0.0.254');
   });
 });
 

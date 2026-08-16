@@ -67,11 +67,15 @@ export function QrScreen() {
           className="link"
           onClick={() => setManual((open) => !open)}
         >
-          {manual ? 'Hide code' : 'Enter code manually'}
+          {manual ? 'Hide code' : 'Show 6-digit code'}
         </button>
       </div>
       {manual && pairing ? (
-        <code className="manual-code">{pairing.pairingCode}</code>
+        expired ? (
+          <p className="timer-row expired">Expired</p>
+        ) : (
+          <OtpBoxes value={pairing.pairingCode} readOnly />
+        )
       ) : null}
     </section>
   );
@@ -154,9 +158,11 @@ export function OtpScreen() {
 function OtpBoxes({
   value,
   onChange,
+  readOnly = false,
 }: {
   value: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
+  readOnly?: boolean;
 }) {
   const digits = value.padEnd(6, ' ').slice(0, 6).split('');
 
@@ -164,7 +170,7 @@ function OtpBoxes({
     <div className="otp-boxes">
       {digits.map((digit, index) => {
         const filled = digit.trim() !== '';
-        const active = index === value.length;
+        const active = !readOnly && index === value.length;
         return (
           <span
             key={index}
@@ -174,17 +180,19 @@ function OtpBoxes({
           </span>
         );
       })}
-      <input
-        aria-label="Six-digit pairing code"
-        autoFocus
-        className="otp-hidden"
-        inputMode="numeric"
-        maxLength={6}
-        value={value}
-        onChange={(event) =>
-          onChange(event.target.value.replace(/\D/g, '').slice(0, 6))
-        }
-      />
+      {readOnly ? null : (
+        <input
+          aria-label="Six-digit pairing code"
+          autoFocus
+          className="otp-hidden"
+          inputMode="numeric"
+          maxLength={6}
+          value={value}
+          onChange={(event) =>
+            onChange?.(event.target.value.replace(/\D/g, '').slice(0, 6))
+          }
+        />
+      )}
     </div>
   );
 }

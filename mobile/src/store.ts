@@ -40,6 +40,7 @@ type AppState = {
   activeFingerprint: string | null;
   screen: ScreenName;
   pairing: PairingDraft | null;
+  pin: string | null;
   connectedName: string | null;
   error: string | null;
   status: 'idle' | 'connecting' | 'connected';
@@ -50,7 +51,17 @@ type AppState = {
   setStatus: (status: AppState['status']) => void;
   setDeck: (tiles: Array<DeckTileView | null>) => void;
   startPairing: (payload: PairingPayload, otp: string) => void;
-  finishPairing: (hostName: string) => void;
+  startPinPairing: (pin: string) => void;
+  finishPairing: (
+    hostName: string,
+    offer?: {
+      fingerprint: string;
+      token: string;
+      host: string;
+      port: number;
+      os: string;
+    },
+  ) => void;
   markDisconnected: () => void;
   selectProfile: (fingerprint: string) => void;
   removeProfile: (fingerprint: string) => void;
@@ -97,6 +108,7 @@ export const useAppStore = create<AppState>()(
       activeFingerprint: null,
       screen: 'scan',
       pairing: null,
+      pin: null,
       connectedName: null,
       error: null,
       status: 'idle',
@@ -113,6 +125,7 @@ export const useAppStore = create<AppState>()(
             otp,
             expiresAt: Date.now() + 2 * 60 * 1000,
           },
+          pin: null,
           screen: 'pair_code',
           error: null,
           status: 'connecting',
@@ -120,7 +133,18 @@ export const useAppStore = create<AppState>()(
           deck: emptyDeck(),
           hasDeck: false,
         }),
-      finishPairing: (hostName) => {
+      startPinPairing: (pin) =>
+        set({
+          pin,
+          pairing: null,
+          screen: 'manual',
+          error: null,
+          status: 'connecting',
+          connectedName: null,
+          deck: emptyDeck(),
+          hasDeck: false,
+        }),
+      finishPairing: (hostName, offer) => {
         const pairing = get().pairing;
         if (pairing) {
           const named: DesktopProfile = {
@@ -139,6 +163,29 @@ export const useAppStore = create<AppState>()(
             status: 'connected',
             screen: 'deck',
             pairing: null,
+            pin: null,
+            error: null,
+          });
+          return;
+        }
+        if (offer) {
+          const named: DesktopProfile = {
+            name: hostName || 'Desktop',
+            os: offer.os,
+            fingerprint: offer.fingerprint,
+            host: offer.host,
+            port: offer.port,
+            token: offer.token,
+            pairedAt: Date.now(),
+          };
+          set({
+            profiles: upsertDesktop(get().profiles, named),
+            activeFingerprint: named.fingerprint,
+            connectedName: hostName,
+            status: 'connected',
+            screen: 'deck',
+            pairing: null,
+            pin: null,
             error: null,
           });
           return;
@@ -167,6 +214,7 @@ export const useAppStore = create<AppState>()(
           activeFingerprint: fingerprint,
           error: null,
           pairing: null,
+          pin: null,
           status: 'connecting',
           deck: same ? get().deck : emptyDeck(),
           hasDeck: same ? get().hasDeck : false,
@@ -189,6 +237,7 @@ export const useAppStore = create<AppState>()(
       cancelPairing: () =>
         set({
           pairing: null,
+          pin: null,
           status: 'idle',
           error: null,
           connectedName: null,
@@ -214,6 +263,7 @@ export const useAppStore = create<AppState>()(
         state.status = 'idle';
         state.connectedName = null;
         state.pairing = null;
+        state.pin = null;
         state.deck = emptyDeck();
         state.hasDeck = false;
       },

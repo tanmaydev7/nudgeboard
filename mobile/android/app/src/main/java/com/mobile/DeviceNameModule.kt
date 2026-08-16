@@ -7,6 +7,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableMap
+import java.net.NetworkInterface
 
 class DeviceNameModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -21,6 +22,33 @@ class DeviceNameModule(reactContext: ReactApplicationContext) :
 
   @ReactMethod(isBlockingSynchronousMethod = true)
   fun getHints(): WritableMap = hints()
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun getLanHost(): String = lanHost()
+
+  private fun lanHost(): String {
+    val scored = mutableListOf<Pair<String, Int>>()
+    val interfaces = NetworkInterface.getNetworkInterfaces() ?: return ""
+    for (nic in interfaces) {
+      for (address in nic.inetAddresses) {
+        val ip = address.hostAddress.orEmpty()
+        if (address.isLoopbackAddress || ip.contains(':') || ip.startsWith("169.254.")) {
+          continue
+        }
+        val score =
+          when {
+            ip.startsWith("192.168.") -> 3
+            ip.startsWith("10.") -> 2
+            ip.matches(Regex("^172\\.(1[6-9]|2\\d|3[0-1])\\..*")) -> 1
+            else -> 0
+          }
+        if (score > 0) {
+          scored.add(ip to score)
+        }
+      }
+    }
+    return scored.maxByOrNull { it.second }?.first.orEmpty()
+  }
 
   private fun hints(): WritableMap {
     val names = Arguments.createArray()

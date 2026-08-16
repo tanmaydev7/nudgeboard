@@ -1,5 +1,7 @@
 export const PROTOCOL_VERSION = 1;
 export const APP_ID = 'nudgeboard';
+export const DEFAULT_PORT = 47890;
+export const QR_TTL_MS = 5 * 60 * 1000;
 
 export type DevicePlatform = 'ios' | 'android';
 
@@ -31,6 +33,11 @@ export type ClientMessage =
       device: DeviceHello;
     }
   | {
+      type: 'hello_pin';
+      pin: string;
+      device: DeviceHello;
+    }
+  | {
       type: 'reconnect';
       token: string;
       device: DeviceHello;
@@ -46,8 +53,18 @@ export type DeckTileView = {
   icon?: string;
 };
 
+export type HelloOk = {
+  type: 'hello_ok';
+  hostName: string;
+  fingerprint: string;
+  token: string;
+  host: string;
+  port: number;
+  os: string;
+};
+
 export type ServerMessage =
-  | { type: 'hello_ok'; hostName: string; fingerprint: string }
+  | HelloOk
   | { type: 'hello_err'; reason: string }
   | {
       type: 'deck';
@@ -106,6 +123,32 @@ export function formatFingerprint(bytes: ArrayLike<number>): string {
   return [bytes[0], bytes[1], bytes[2]]
     .map((value) => Number(value).toString(16).toUpperCase().padStart(2, '0'))
     .join(':');
+}
+
+export function isPairingPin(value: string): boolean {
+  return /^\d{6}$/.test(value);
+}
+
+export function lanCandidates(ip: string): string[] {
+  const parts = ip.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return [];
+  }
+  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const hosts: string[] = [];
+  for (let host = 1; host <= 254; host += 1) {
+    const next = `${prefix}.${host}`;
+    if (next !== ip) {
+      hosts.push(next);
+    }
+  }
+  return hosts;
+}
+
+export function fallbackLanCandidates(): string[] {
+  return ['192.168.1', '192.168.0', '10.0.0'].flatMap((prefix) =>
+    Array.from({ length: 254 }, (_, index) => `${prefix}.${index + 1}`),
+  );
 }
 
 export function formatCountdown(ms: number): string {

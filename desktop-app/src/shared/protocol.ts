@@ -34,6 +34,11 @@ export type ClientMessage =
       device: DeviceHello;
     }
   | {
+      type: 'hello_pin';
+      pin: string;
+      device: DeviceHello;
+    }
+  | {
       type: 'reconnect';
       token: string;
       device: DeviceHello;
@@ -50,7 +55,15 @@ export type DeckTileView = {
 };
 
 export type ServerMessage =
-  | { type: 'hello_ok'; hostName: string; fingerprint: string }
+  | {
+      type: 'hello_ok';
+      hostName: string;
+      fingerprint: string;
+      token: string;
+      host: string;
+      port: number;
+      os: string;
+    }
   | { type: 'hello_err'; reason: string }
   | {
       type: 'deck';
@@ -109,6 +122,14 @@ export function formatFingerprint(bytes: ArrayLike<number>): string {
   return [bytes[0], bytes[1], bytes[2]]
     .map((value) => Number(value).toString(16).toUpperCase().padStart(2, '0'))
     .join(':');
+}
+
+export function isPairingPin(value: string): boolean {
+  return /^\d{6}$/.test(value);
+}
+
+export function makePairingPin(seed: number): string {
+  return String(100000 + (Math.abs(seed) % 900000));
 }
 
 export function formatCountdown(ms: number): string {

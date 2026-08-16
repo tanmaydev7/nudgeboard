@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { hostname, networkInterfaces } from 'os';
 import { BrowserWindow, ipcMain } from 'electron';
 import QRCode from 'qrcode';
@@ -23,7 +24,7 @@ import {
   OTP_TTL_MS,
   PROTOCOL_VERSION,
   QR_TTL_MS,
-  encodePairingCode,
+  makePairingPin,
   type ClientMessage,
   type DeviceHello,
   type PairingPayload,
@@ -56,6 +57,7 @@ type PendingPair = {
 type Session = {
   step: PairingSession['step'];
   token: string;
+  pin: string;
   qrDataUrl: string;
   payload: PairingPayload;
   expiresAt: number;
@@ -167,7 +169,7 @@ const pairingView = (): PairingSession | null => {
     payload: session.payload,
     hostName,
     fingerprint: persisted.fingerprint,
-    pairingCode: encodePairingCode(session.payload),
+    pairingCode: session.pin,
     expiresAt: session.expiresAt,
     pending: session.pending ? pendingView(session.pending) : null,
   };
@@ -332,13 +334,19 @@ const acceptDevice = (
   }
   save();
   live.set(socket, { socket, deviceId: device.id, ip });
-  send(socket, {
-    type: 'hello_ok',
-    hostName,
-    fingerprint: persisted.fingerprint,
-  });
+  send(socket, helloOk(token));
   pushDeck(device.id);
 };
+
+const helloOk = (token: string): Extract<ServerMessage, { type: 'hello_ok' }> => ({
+  type: 'hello_ok',
+  hostName,
+  fingerprint: persisted.fingerprint,
+  token,
+  host: selectedHost,
+  port,
+  os: hostOs,
+});
 
 const handleHello = (socket: WebSocket, message: Extract<ClientMessage, { type: 'hello' }>, ip: string): void => {
   if (!session || sessionExpired()) {
@@ -373,6 +381,36 @@ const handleHello = (socket: WebSocket, message: Extract<ClientMessage, { type: 
   sendToRenderer();
 };
 
+const handleHelloPin = (
+  socket: WebSocket,
+  message: Extract<ClientMessage, { type: 'hello_pin' }>,
+  ip: string,
+): void => {
+  if (!session || sessionExpired()) {
+    send(socket, { type: 'hello_err', reason: 'Pairing code expired. Generate a new QR.' });
+    socket.close();
+    return;
+  }
+  if (session.pending) {
+    send(socket, { type: 'hello_err', reason: 'Another device is already pairing' });
+    socket.close();
+    return;
+  }
+  if (!otpMatch(session.pin, message.pin.trim())) {
+    send(socket, { type: 'hello_err', reason: 'Invalid pairing code' });
+    socket.close();
+    return;
+  }
+
+  const token = session.token;
+  session = null;
+  acceptDevice(socket, message.device, token, true, ip);
+  lastPairedId = message.device.id;
+  persisted.activeDeviceId = message.device.id;
+  save();
+  sendToRenderer();
+};
+
 const handleReconnect = (
   socket: WebSocket,
   message: Extract<ClientMessage, { type: 'reconnect' }>,
@@ -397,11 +435,7 @@ const handleReconnect = (
   save();
   dropDeviceId(stored.id);
   live.set(socket, { socket, deviceId: stored.id, ip });
-  send(socket, {
-    type: 'hello_ok',
-    hostName,
-    fingerprint: persisted.fingerprint,
-  });
+  send(socket, helloOk(stored.token));
   pushDeck(stored.id);
   sendToRenderer();
 };
@@ -439,6 +473,10 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
     handleHello(socket, message, ip);
     return;
   }
+  if (message.type === 'hello_pin') {
+    handleHelloPin(socket, message, ip);
+    return;
+  }
   if (message.type === 'press') {
     handlePress(socket, message);
     return;
@@ -446,21 +484,50 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   send(socket, { type: 'hello_err', reason: 'Unknown message' });
 };
 
+const pairingProbe = (req: IncomingMessage, res: ServerResponse): void => {
+  if (
+    req.method === 'GET' &&
+    (req.url === '/nudgeboard/pairing' || req.url === '/nudgeboard/pairing/')
+  ) {
+    if (session && !sessionExpired()) {
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'access-control-allow-origin': '*',
+      });
+      res.end(
+        JSON.stringify({
+          app: APP_ID,
+          name: hostName,
+          fingerprint: persisted.fingerprint,
+        }),
+      );
+      return;
+    }
+    res.writeHead(204, { 'access-control-allow-origin': '*' });
+    res.end();
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+};
+
 const listen = async (startPort: number): Promise<number> => {
   for (let nextPort = startPort; nextPort < startPort + 20; nextPort += 1) {
     const bound = await new Promise<number | null>((resolve, reject) => {
-      const server = new WebSocketServer({ host: '0.0.0.0', port: nextPort });
-      server.once('error', (error: NodeJS.ErrnoException) => {
+      const httpServer = createServer(pairingProbe);
+      const server = new WebSocketServer({ server: httpServer });
+      httpServer.once('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'EADDRINUSE') {
-          server.close(() => resolve(null));
+          httpServer.close(() => resolve(null));
           return;
         }
         reject(error);
       });
-      server.once('listening', () => {
+      httpServer.once('listening', () => {
         wss = server;
         resolve(nextPort);
       });
+      httpServer.listen(nextPort, '0.0.0.0');
     });
     if (bound !== null) {
       return bound;
@@ -473,6 +540,7 @@ const startPairing = async (): Promise<BridgeSnapshot> => {
   selectedHost = listLanHosts()[0] ?? selectedHost;
   clearSession('Pairing restarted');
   const token = randomBytes(TOKEN_BYTES).toString('hex');
+  const pin = makePairingPin(randomBytes(4).readUInt32BE(0));
   const payload = pairingPayload(token);
   const qrDataUrl = await QRCode.toDataURL(JSON.stringify(payload), {
     margin: 1,
@@ -482,6 +550,7 @@ const startPairing = async (): Promise<BridgeSnapshot> => {
   session = {
     step: 'qr',
     token,
+    pin,
     qrDataUrl,
     payload,
     expiresAt: Date.now() + QR_TTL_MS,
