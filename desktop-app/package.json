@@ -1,8 +1,8 @@
 {
   "name": "desktop-app",
-  "productName": "desktop-app",
+  "productName": "Nudgeboard",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Stream Deck-style companion for iPhone and Android",
   "main": ".webpack/main",
   "private": true,
   "scripts": {
@@ -28,8 +28,10 @@
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-webpack": "^7.11.2",
     "@electron/fuses": "^1.8.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
@@ -45,7 +47,10 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "ws": "^8.21.3",
+    "zustand": "^5.0.8"
   }
 }
