@@ -6,7 +6,7 @@ import {
   Tray,
   type MenuItemConstructorOptions,
 } from 'electron';
-import { startBridge, stopBridge } from './bridge';
+import { currentAppearance, startBridge, stopBridge, WINDOW_CHROME } from './bridge';
 import { createAppNativeImage, createTrayNativeImage } from './icons';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -195,20 +195,21 @@ const createTray = (): void => {
 
 const createWindow = (): void => {
   const appIcon = createAppNativeImage();
+  const chrome = WINDOW_CHROME[currentAppearance()];
   const win = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 960,
     minHeight: 640,
     icon: appIcon,
-    backgroundColor: '#0b0b0c',
+    backgroundColor: chrome.backgroundColor,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac
       ? {}
       : {
           titleBarOverlay: {
-            color: '#0b0b0c',
-            symbolColor: '#d4d4d8',
+            color: chrome.backgroundColor,
+            symbolColor: chrome.symbolColor,
             height: TITLE_BAR_HEIGHT,
           },
           autoHideMenuBar: true,

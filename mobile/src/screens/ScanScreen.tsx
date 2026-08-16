@@ -8,10 +8,8 @@ import {
 import { useBarcodeScannerOutput } from 'react-native-vision-camera-barcode-scanner';
 import { parsePairingPayload } from '../pairing';
 import { makeOtp, useAppStore } from '../store';
-import { colors, spacing } from '../theme';
+import { spacing, ThemeToggle, type Palette, useThemedStyles } from '../theme';
 import type { PairingPayload } from '../protocol';
-
-const palette = colors.dark;
 const QR_FORMATS: Array<'qr-code'> = ['qr-code'];
 
 type Props = {
@@ -19,6 +17,7 @@ type Props = {
 };
 
 export function ScanScreen({ onBack }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const setScreen = useAppStore((s) => s.setScreen);
   const setError = useAppStore((s) => s.setError);
   const startPairing = useAppStore((s) => s.startPairing);
@@ -65,6 +64,7 @@ export function ScanScreen({ onBack }: Props) {
     <View style={styles.content}>
       <View style={styles.top}>
         <Text style={styles.brand}>NudgeBoard</Text>
+        <ThemeToggle />
       </View>
       <View style={styles.heading}>
         <Text style={styles.title}>
@@ -166,7 +166,8 @@ export function ScanScreen({ onBack }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
@@ -174,7 +175,9 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   top: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   brand: {
     color: palette.muted,
@@ -201,13 +204,17 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: '#14161c',
+    backgroundColor: palette.well,
   },
   camera: {
     flex: 1,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     justifyContent: 'space-between',
     padding: 16,
   },
@@ -251,7 +258,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 4,
   },
   error: {
-    color: '#FF6B6B',
+    color: palette.error,
   },
   confirmCard: {
     flex: 1,
@@ -285,7 +292,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.purple,
   },
   confirmLabel: {
-    color: palette.text,
+    color: palette.onPurple,
     fontWeight: '700',
   },
   linkWrap: {

@@ -11,7 +11,7 @@ import { PairCodeScreen } from './screens/PairCodeScreen';
 import { ProfilesScreen } from './screens/ProfilesScreen';
 import { ScanScreen } from './screens/ScanScreen';
 import { useAppStore } from './store';
-import { colors } from './theme';
+import { colors, usePalette } from './theme';
 
 type Connection = ReturnType<typeof connectBridge>;
 
@@ -70,7 +70,12 @@ function useBridgeConnection() {
     const device = getDeviceInfo();
     let cancelled = false;
 
-    const attach = (host: string, port: number, message: ClientMessage) => {
+    const attach = (
+      host: string,
+      port: number,
+      message: ClientMessage,
+      knownToken?: string,
+    ) => {
       if (cancelled) {
         return;
       }
@@ -80,57 +85,63 @@ function useBridgeConnection() {
         return;
       }
       connectionRef.current?.close();
-      const session = connectBridge(host, port, message, {
-        onConnected: (ok) => {
-          if (connectionRef.current !== session) {
-            return;
-          }
-          finishPairing(ok.hostName, {
-            fingerprint: ok.fingerprint,
-            token: ok.token,
-            host: ok.host || host,
-            port: ok.port || port,
-            os: ok.os,
-          });
-        },
-        onDeck: (tiles) => {
-          if (connectionRef.current !== session) {
-            return;
-          }
-          setDeck(tiles);
-        },
-        onError: (reason) => {
-          if (connectionRef.current !== session) {
-            return;
-          }
-          if (reason.includes('does not recognize')) {
+      const session = connectBridge(
+        host,
+        port,
+        message,
+        {
+          onConnected: (ok) => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            finishPairing(ok.hostName, {
+              fingerprint: ok.fingerprint,
+              token: ok.token,
+              host: ok.host || host,
+              port: ok.port || port,
+              os: ok.os,
+            });
+          },
+          onDeck: (tiles) => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            setDeck(tiles);
+          },
+          onError: (reason) => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            if (reason.includes('does not recognize')) {
+              const fingerprint = useAppStore.getState().activeFingerprint;
+              if (fingerprint) {
+                useAppStore.getState().removeProfile(fingerprint);
+              }
+              return;
+            }
+            setError(reason);
+            setStatus('idle');
+          },
+          onLoggedOut: () => {
+            if (connectionRef.current !== session) {
+              return;
+            }
             const fingerprint = useAppStore.getState().activeFingerprint;
             if (fingerprint) {
               useAppStore.getState().removeProfile(fingerprint);
             }
-            return;
-          }
-          setError(reason);
-          setStatus('idle');
+          },
+          onClose: () => {
+            if (connectionRef.current !== session) {
+              return;
+            }
+            if (useAppStore.getState().status === 'connected') {
+              markDisconnected();
+            }
+          },
         },
-        onLoggedOut: () => {
-          if (connectionRef.current !== session) {
-            return;
-          }
-          const fingerprint = useAppStore.getState().activeFingerprint;
-          if (fingerprint) {
-            useAppStore.getState().removeProfile(fingerprint);
-          }
-        },
-        onClose: () => {
-          if (connectionRef.current !== session) {
-            return;
-          }
-          if (useAppStore.getState().status === 'connected') {
-            markDisconnected();
-          }
-        },
-      });
+        knownToken,
+      );
       connectionRef.current = session;
     };
 
@@ -167,11 +178,16 @@ function useBridgeConnection() {
         setStatus('idle');
         return;
       }
-      attach(profile.host, profile.port, {
-        type: 'reconnect',
-        token: profile.token,
-        device,
-      });
+      attach(
+        profile.host,
+        profile.port,
+        {
+          type: 'reconnect',
+          token: profile.token,
+          device,
+        },
+        profile.token,
+      );
     }
 
     return () => {
@@ -194,11 +210,12 @@ function useBridgeConnection() {
 
 function AppShell() {
   const hydrated = useHydrated();
+  const palette = usePalette();
 
   if (!hydrated) {
     return (
       <SafeAreaView
-        style={{ flex: 1, backgroundColor: colors.dark.background }}
+        style={{ flex: 1, backgroundColor: palette.background }}
       />
     );
   }
@@ -210,11 +227,12 @@ function ReadyApp() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const cancelPairing = useAppStore((s) => s.cancelPairing);
+  const palette = usePalette();
   const { disconnect, logout, pressTile } = useBridgeConnection();
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.dark.background }}
+      style={{ flex: 1, backgroundColor: palette.background }}
       edges={
         screen === 'deck'
           ? ['top', 'right', 'left']
@@ -248,10 +266,15 @@ function ReadyApp() {
 }
 
 function App() {
+  const theme = useAppStore((s) => s.theme);
   return (
-    <GestureHandlerRootView style={styles.root}>
+    <GestureHandlerRootView
+      style={[styles.root, { backgroundColor: colors[theme].background }]}
+    >
       <SafeAreaProvider>
-        <StatusBar barStyle="light-content" />
+        <StatusBar
+          barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+        />
         <AppShell />
       </SafeAreaProvider>
     </GestureHandlerRootView>

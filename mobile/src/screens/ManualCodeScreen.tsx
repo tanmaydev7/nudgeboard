@@ -8,11 +8,10 @@ import {
 } from 'react-native';
 import { isPairingPin } from '../protocol';
 import { useAppStore } from '../store';
-import { colors, spacing } from '../theme';
-
-const palette = colors.dark;
+import { spacing, ThemeToggle, type Palette, useThemedStyles } from '../theme';
 
 export function ManualCodeScreen() {
+  const styles = useThemedStyles(makeStyles);
   const setScreen = useAppStore((s) => s.setScreen);
   const startPinPairing = useAppStore((s) => s.startPinPairing);
   const status = useAppStore((s) => s.status);
@@ -33,7 +32,10 @@ export function ManualCodeScreen() {
 
   return (
     <View style={styles.content}>
-      <Text style={styles.brand}>NudgeBoard</Text>
+      <View style={styles.top}>
+        <Text style={styles.brand}>NudgeBoard</Text>
+        <ThemeToggle />
+      </View>
       <Text style={styles.title}>Type the 6 digits from your PC</Text>
       <Text style={styles.hint}>
         Keep your phone and PC on the same Wi-Fi. The code expires in 5 minutes.
@@ -92,17 +94,22 @@ export function ManualCodeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     gap: spacing.md,
   },
+  top: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   brand: {
     color: palette.muted,
     fontWeight: '600',
-    textAlign: 'right',
   },
   title: {
     color: palette.text,
@@ -128,7 +135,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   otpFilled: {
-    backgroundColor: '#2a2150',
+    backgroundColor: palette.otp,
     borderWidth: 1,
     borderColor: palette.purple,
   },
@@ -142,11 +149,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   otpHidden: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     opacity: 0,
   },
   error: {
-    color: '#FF6B6B',
+    color: palette.error,
   },
   button: {
     alignItems: 'center',
@@ -156,7 +167,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.purple,
   },
   buttonLabel: {
-    color: palette.text,
+    color: palette.onPurple,
     fontWeight: '700',
   },
   disabled: {

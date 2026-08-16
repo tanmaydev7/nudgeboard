@@ -13,9 +13,7 @@ import BottomSheet, {
 } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../store';
-import { colors, spacing } from '../theme';
-
-const palette = colors.dark;
+import { ThemeToggle, spacing, type Palette, useThemedStyles } from '../theme';
 /** Collapsed snap = default Gorhom handle height. One pill, always visible. */
 export const DRAWER_PEEK = 24;
 
@@ -44,6 +42,7 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
     );
     const name = connectedName ?? profile?.name ?? 'Desktop';
     const live = status === 'connected';
+    const styles = useThemedStyles(makeStyles);
     const insets = useSafeAreaInsets();
     const snapPoints = useMemo(() => [DRAWER_PEEK], []);
 
@@ -122,6 +121,7 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
                 </Text>
               </View>
             </View>
+            <ThemeToggle />
           </View>
 
           <Pressable
@@ -181,133 +181,134 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
   },
 );
 
-const styles = StyleSheet.create({
-  background: {
-    backgroundColor: '#1c1f26',
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#4b5160',
-  },
-  body: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    gap: 4,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  monitor: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#2a2e36',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  monitorGlyph: {
-    color: palette.text,
-    fontSize: 20,
-  },
-  headerText: {
-    flex: 1,
-    gap: 4,
-  },
-  title: {
-    color: palette.text,
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  dotOn: {
-    backgroundColor: palette.green,
-  },
-  dotOff: {
-    backgroundColor: '#ef4444',
-  },
-  live: {
-    color: palette.green,
-    fontWeight: '600',
-  },
-  offline: {
-    color: '#f87171',
-    fontWeight: '600',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: 56,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#2a2e36',
-  },
-  rowCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  rowLabel: {
-    flex: 1,
-    color: palette.text,
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  rowMeta: {
-    color: palette.muted,
-    fontSize: 13,
-  },
-  chevron: {
-    color: palette.muted,
-    fontSize: 22,
-  },
-  badge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeGreen: {
-    backgroundColor: '#16a34a',
-  },
-  badgeBlue: {
-    backgroundColor: '#2563eb',
-  },
-  badgeRed: {
-    backgroundColor: '#dc2626',
-  },
-  badgeLabel: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  reconnect: {
-    marginTop: spacing.md,
-    minHeight: 52,
-    borderRadius: 14,
-    backgroundColor: '#14352a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reconnectLabel: {
-    color: palette.green,
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-});
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
+    background: {
+      backgroundColor: palette.sheet,
+    },
+    handle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: palette.handle,
+    },
+    body: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      gap: 4,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingBottom: spacing.md,
+    },
+    monitor: {
+      width: 48,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: palette.glyph,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    monitorGlyph: {
+      color: palette.text,
+      fontSize: 20,
+    },
+    headerText: {
+      flex: 1,
+      gap: 4,
+    },
+    title: {
+      color: palette.text,
+      fontSize: 20,
+      fontWeight: '800',
+    },
+    statusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    dot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    dotOn: {
+      backgroundColor: palette.green,
+    },
+    dotOff: {
+      backgroundColor: palette.danger,
+    },
+    live: {
+      color: palette.green,
+      fontWeight: '600',
+    },
+    offline: {
+      color: palette.danger,
+      fontWeight: '600',
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      minHeight: 56,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: palette.line,
+    },
+    rowCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    rowLabel: {
+      flex: 1,
+      color: palette.text,
+      fontWeight: '600',
+      fontSize: 16,
+    },
+    rowMeta: {
+      color: palette.muted,
+      fontSize: 13,
+    },
+    chevron: {
+      color: palette.muted,
+      fontSize: 22,
+    },
+    badge: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badgeGreen: {
+      backgroundColor: '#16a34a',
+    },
+    badgeBlue: {
+      backgroundColor: '#2563eb',
+    },
+    badgeRed: {
+      backgroundColor: '#dc2626',
+    },
+    badgeLabel: {
+      color: '#fff',
+      fontWeight: '800',
+      fontSize: 16,
+    },
+    reconnect: {
+      marginTop: spacing.md,
+      minHeight: 52,
+      borderRadius: 14,
+      backgroundColor: palette.reconnect,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    reconnectLabel: {
+      color: palette.green,
+      fontWeight: '800',
+      fontSize: 16,
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+  });

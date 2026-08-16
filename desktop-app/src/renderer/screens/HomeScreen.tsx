@@ -593,7 +593,7 @@ export function HomeScreen() {
             {tab === 'apps' ? (
               <div className="library-tools">
                 <label className="search-field">
-                  <LuSearch size={14} color="#5b9dff" />
+                  <LuSearch size={14} />
                   <input
                     ref={searchRef}
                     type="search"

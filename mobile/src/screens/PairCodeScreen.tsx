@@ -1,15 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAppStore } from '../store';
-import { colors, spacing } from '../theme';
+import { spacing, ThemeToggle, type Palette, useThemedStyles } from '../theme';
 import { useCountdown } from '../useCountdown';
-
-const palette = colors.dark;
 
 type Props = {
   onCancel: () => void;
 };
 
 export function PairCodeScreen({ onCancel }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const pairing = useAppStore((s) => s.pairing);
   const { remaining, expired } = useCountdown(pairing?.expiresAt);
   const error = useAppStore((s) => s.error);
@@ -18,7 +17,10 @@ export function PairCodeScreen({ onCancel }: Props) {
 
   return (
     <View style={styles.content}>
-      <Text style={styles.brand}>NudgeBoard</Text>
+      <View style={styles.top}>
+        <Text style={styles.brand}>NudgeBoard</Text>
+        <ThemeToggle />
+      </View>
       <Text style={styles.title}>
         Type these digits on{' '}
         <Text style={styles.host}>{hostName}</Text>
@@ -54,17 +56,22 @@ export function PairCodeScreen({ onCancel }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     gap: spacing.md,
   },
+  top: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   brand: {
     color: palette.muted,
     fontWeight: '600',
-    textAlign: 'right',
   },
   title: {
     color: palette.text,
@@ -84,7 +91,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 64,
     borderRadius: 12,
-    backgroundColor: '#2a2150',
+    backgroundColor: palette.otp,
     borderWidth: 1,
     borderColor: palette.purple,
     alignItems: 'center',
@@ -118,17 +125,17 @@ const styles = StyleSheet.create({
     color: palette.muted,
   },
   expired: {
-    color: '#FF6B6B',
+    color: palette.error,
   },
   error: {
-    color: '#FF6B6B',
+    color: palette.error,
   },
   ghost: {
     marginTop: 'auto',
     minHeight: 52,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#3a3f4a',
+    borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
   },

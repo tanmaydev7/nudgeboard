@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { HomeScreen } from './screens/HomeScreen';
 import { OtpScreen, QrScreen } from './screens/PairingScreens';
+import { ThemeToggle } from './screens/ThemeToggle';
 import { useAppStore } from './store';
 
 const App = () => {
@@ -8,7 +9,13 @@ const App = () => {
   const setView = useAppStore((s) => s.setView);
   const setSnapshot = useAppStore((s) => s.setSnapshot);
   const snapshot = useAppStore((s) => s.snapshot);
+  const appearance = snapshot?.appearance ?? 'dark';
   const isMac = window.api.platform === 'darwin';
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = appearance;
+    document.documentElement.style.colorScheme = appearance;
+  }, [appearance]);
 
   useEffect(() => {
     void window.api.getSnapshot().then((next) => {
@@ -46,6 +53,7 @@ const App = () => {
       {view === 'qr' ? <QrScreen /> : null}
       {view === 'otp' || view === 'confirm' ? <OtpScreen /> : null}
       {view === 'home' ? <HomeScreen /> : null}
+      <ThemeToggle />
     </main>
   );
 };

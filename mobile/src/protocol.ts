@@ -2,6 +2,7 @@ export const PROTOCOL_VERSION = 1;
 export const APP_ID = 'nudgeboard';
 export const DEFAULT_PORT = 47890;
 export const QR_TTL_MS = 5 * 60 * 1000;
+export const OTP_TTL_MS = 2 * 60 * 1000;
 
 export type DevicePlatform = 'ios' | 'android';
 
@@ -25,6 +26,20 @@ export type DeviceHello = {
   fingerprint: string;
 };
 
+export type EncryptedEnvelope = {
+  type: 'encrypted';
+  iv: string;
+  data: string;
+  tag: string;
+  seq: number;
+};
+
+export type DecryptedReconnect = {
+  token: string;
+  device: DeviceHello;
+  ts: number;
+};
+
 export type ClientMessage =
   | {
       type: 'hello';
@@ -43,12 +58,21 @@ export type ClientMessage =
       device: DeviceHello;
     }
   | {
+      type: 'reconnect_enc';
+      id: string;
+      iv: string;
+      data: string;
+      tag: string;
+      seq: number;
+    }
+  | {
       type: 'press';
       id: string;
     }
   | {
       type: 'logout';
-    };
+    }
+  | EncryptedEnvelope;
 
 export type DeckTileView = {
   id: string;
@@ -76,7 +100,8 @@ export type ServerMessage =
       columns: number;
       rows: number;
       tiles: Array<DeckTileView | null>;
-    };
+    }
+  | EncryptedEnvelope;
 
 export const GRID_COLUMNS = 4;
 export const GRID_ROWS = 2;
@@ -163,26 +188,8 @@ export function isPairingPin(value: string): boolean {
   return /^\d{6}$/.test(value);
 }
 
-export function lanCandidates(ip: string): string[] {
-  const parts = ip.split('.');
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
-    return [];
-  }
-  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
-  const hosts: string[] = [];
-  for (let host = 1; host <= 254; host += 1) {
-    const next = `${prefix}.${host}`;
-    if (next !== ip) {
-      hosts.push(next);
-    }
-  }
-  return hosts;
-}
-
-export function fallbackLanCandidates(): string[] {
-  return ['192.168.1', '192.168.0', '10.0.0'].flatMap((prefix) =>
-    Array.from({ length: 254 }, (_, index) => `${prefix}.${index + 1}`),
-  );
+export function makePairingPin(seed: number): string {
+  return String(100000 + (Math.abs(seed) % 900000));
 }
 
 export function formatCountdown(ms: number): string {
@@ -190,6 +197,18 @@ export function formatCountdown(ms: number): string {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+export function encodePairingCode(payload: PairingPayload): string {
+  return [
+    'nb1',
+    payload.name,
+    payload.os,
+    payload.host,
+    String(payload.port),
+    payload.token,
+    payload.fingerprint,
+  ].join('|');
 }
 
 export function isPairingPayload(value: unknown): value is PairingPayload {
@@ -213,6 +232,172 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
     typeof payload.fingerprint === 'string' &&
     FINGERPRINT_RE.test(payload.fingerprint) &&
     isPrivateLanHost(payload.host)
+  );
+}
+
+const isDeviceHello = (value: unknown): value is DeviceHello => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const device = value as Partial<DeviceHello>;
+  return (
+    typeof device.id === 'string' &&
+    device.id.length > 0 &&
+    device.id.length <= 128 &&
+    typeof device.name === 'string' &&
+    device.name.length > 0 &&
+    device.name.length <= 128 &&
+    (device.platform === 'ios' || device.platform === 'android') &&
+    typeof device.model === 'string' &&
+    device.model.length <= 128 &&
+    typeof device.os === 'string' &&
+    device.os.length <= 64 &&
+    typeof device.fingerprint === 'string' &&
+    FINGERPRINT_RE.test(device.fingerprint)
+  );
+};
+
+export function parseClientMessage(raw: unknown): ClientMessage | null {
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const message = raw as { type?: unknown };
+  if (message.type === 'encrypted') {
+    const enc = raw as Partial<EncryptedEnvelope>;
+    if (
+      typeof enc.iv === 'string' &&
+      enc.iv.length > 0 &&
+      enc.iv.length <= 64 &&
+      typeof enc.data === 'string' &&
+      enc.data.length > 0 &&
+      enc.data.length <= 65536 &&
+      typeof enc.tag === 'string' &&
+      enc.tag.length > 0 &&
+      enc.tag.length <= 64 &&
+      typeof enc.seq === 'number' &&
+      Number.isInteger(enc.seq) &&
+      enc.seq > 0
+    ) {
+      return {
+        type: 'encrypted',
+        iv: enc.iv,
+        data: enc.data,
+        tag: enc.tag,
+        seq: enc.seq,
+      };
+    }
+    return null;
+  }
+  if (message.type === 'reconnect_enc') {
+    const enc = raw as {
+      id?: unknown;
+      iv?: unknown;
+      data?: unknown;
+      tag?: unknown;
+      seq?: unknown;
+    };
+    if (
+      typeof enc.id === 'string' &&
+      enc.id.length > 0 &&
+      enc.id.length <= 128 &&
+      typeof enc.iv === 'string' &&
+      enc.iv.length > 0 &&
+      enc.iv.length <= 64 &&
+      typeof enc.data === 'string' &&
+      enc.data.length > 0 &&
+      enc.data.length <= 65536 &&
+      typeof enc.tag === 'string' &&
+      enc.tag.length > 0 &&
+      enc.tag.length <= 64 &&
+      typeof enc.seq === 'number' &&
+      Number.isInteger(enc.seq) &&
+      enc.seq > 0
+    ) {
+      return {
+        type: 'reconnect_enc',
+        id: enc.id,
+        iv: enc.iv,
+        data: enc.data,
+        tag: enc.tag,
+        seq: enc.seq,
+      };
+    }
+    return null;
+  }
+  if (message.type === 'logout') {
+    return { type: 'logout' };
+  }
+  if (message.type === 'press') {
+    const id = (raw as { id?: unknown }).id;
+    if (typeof id !== 'string' || id.length === 0 || id.length > 128) {
+      return null;
+    }
+    return { type: 'press', id };
+  }
+  if (message.type === 'hello') {
+    const body = raw as { token?: unknown; otp?: unknown; device?: unknown };
+    if (
+      typeof body.token !== 'string' ||
+      body.token.length < 8 ||
+      body.token.length > 128 ||
+      typeof body.otp !== 'string' ||
+      !/^\d{6}$/.test(body.otp) ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return {
+      type: 'hello',
+      token: body.token,
+      otp: body.otp,
+      device: body.device,
+    };
+  }
+  if (message.type === 'hello_pin') {
+    const body = raw as { pin?: unknown; device?: unknown };
+    if (
+      typeof body.pin !== 'string' ||
+      !/^\d{6}$/.test(body.pin) ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return { type: 'hello_pin', pin: body.pin, device: body.device };
+  }
+  if (message.type === 'reconnect') {
+    const body = raw as { token?: unknown; device?: unknown };
+    if (
+      typeof body.token !== 'string' ||
+      body.token.length < 8 ||
+      body.token.length > 128 ||
+      !isDeviceHello(body.device)
+    ) {
+      return null;
+    }
+    return { type: 'reconnect', token: body.token, device: body.device };
+  }
+  return null;
+}
+
+export function lanCandidates(ip: string): string[] {
+  const parts = ip.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return [];
+  }
+  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const hosts: string[] = [];
+  for (let host = 1; host <= 254; host += 1) {
+    const next = `${prefix}.${host}`;
+    if (next !== ip) {
+      hosts.push(next);
+    }
+  }
+  return hosts;
+}
+
+export function fallbackLanCandidates(): string[] {
+  return ['192.168.1', '192.168.0', '10.0.0'].flatMap((prefix) =>
+    Array.from({ length: 254 }, (_, index) => `${prefix}.${index + 1}`),
   );
 }
 

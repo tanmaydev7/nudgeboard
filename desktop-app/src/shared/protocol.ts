@@ -26,6 +26,20 @@ export type DeviceHello = {
   fingerprint: string;
 };
 
+export type EncryptedEnvelope = {
+  type: 'encrypted';
+  iv: string;
+  data: string;
+  tag: string;
+  seq: number;
+};
+
+export type DecryptedReconnect = {
+  token: string;
+  device: DeviceHello;
+  ts: number;
+};
+
 export type ClientMessage =
   | {
       type: 'hello';
@@ -44,12 +58,21 @@ export type ClientMessage =
       device: DeviceHello;
     }
   | {
+      type: 'reconnect_enc';
+      id: string;
+      iv: string;
+      data: string;
+      tag: string;
+      seq: number;
+    }
+  | {
       type: 'press';
       id: string;
     }
   | {
       type: 'logout';
-    };
+    }
+  | EncryptedEnvelope;
 
 export type DeckTileView = {
   id: string;
@@ -57,17 +80,19 @@ export type DeckTileView = {
   icon?: string;
 };
 
+export type HelloOk = {
+  type: 'hello_ok';
+  hostName: string;
+  fingerprint: string;
+  /** Issued once after a successful pair. Omitted on reconnect. */
+  token?: string;
+  host: string;
+  port: number;
+  os: string;
+};
+
 export type ServerMessage =
-  | {
-      type: 'hello_ok';
-      hostName: string;
-      fingerprint: string;
-      /** Issued once after a successful pair. Omitted on reconnect. */
-      token?: string;
-      host: string;
-      port: number;
-      os: string;
-    }
+  | HelloOk
   | { type: 'hello_err'; reason: string }
   | { type: 'logged_out' }
   | {
@@ -75,7 +100,8 @@ export type ServerMessage =
       columns: number;
       rows: number;
       tiles: Array<DeckTileView | null>;
-    };
+    }
+  | EncryptedEnvelope;
 
 export const GRID_COLUMNS = 4;
 export const GRID_ROWS = 2;
@@ -236,6 +262,68 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
     return null;
   }
   const message = raw as { type?: unknown };
+  if (message.type === 'encrypted') {
+    const enc = raw as Partial<EncryptedEnvelope>;
+    if (
+      typeof enc.iv === 'string' &&
+      enc.iv.length > 0 &&
+      enc.iv.length <= 64 &&
+      typeof enc.data === 'string' &&
+      enc.data.length > 0 &&
+      enc.data.length <= 65536 &&
+      typeof enc.tag === 'string' &&
+      enc.tag.length > 0 &&
+      enc.tag.length <= 64 &&
+      typeof enc.seq === 'number' &&
+      Number.isInteger(enc.seq) &&
+      enc.seq > 0
+    ) {
+      return {
+        type: 'encrypted',
+        iv: enc.iv,
+        data: enc.data,
+        tag: enc.tag,
+        seq: enc.seq,
+      };
+    }
+    return null;
+  }
+  if (message.type === 'reconnect_enc') {
+    const enc = raw as {
+      id?: unknown;
+      iv?: unknown;
+      data?: unknown;
+      tag?: unknown;
+      seq?: unknown;
+    };
+    if (
+      typeof enc.id === 'string' &&
+      enc.id.length > 0 &&
+      enc.id.length <= 128 &&
+      typeof enc.iv === 'string' &&
+      enc.iv.length > 0 &&
+      enc.iv.length <= 64 &&
+      typeof enc.data === 'string' &&
+      enc.data.length > 0 &&
+      enc.data.length <= 65536 &&
+      typeof enc.tag === 'string' &&
+      enc.tag.length > 0 &&
+      enc.tag.length <= 64 &&
+      typeof enc.seq === 'number' &&
+      Number.isInteger(enc.seq) &&
+      enc.seq > 0
+    ) {
+      return {
+        type: 'reconnect_enc',
+        id: enc.id,
+        iv: enc.iv,
+        data: enc.data,
+        tag: enc.tag,
+        seq: enc.seq,
+      };
+    }
+    return null;
+  }
   if (message.type === 'logout') {
     return { type: 'logout' };
   }

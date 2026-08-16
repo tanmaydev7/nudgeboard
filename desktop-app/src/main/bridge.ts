@@ -1,12 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'http';
 import { hostname, networkInterfaces } from 'os';
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import { BrowserWindow, dialog, ipcMain, nativeImage } from 'electron';
+import { BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme } from 'electron';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
-import type { Server as HttpServer } from 'http';
 import {
   GRID_COLUMNS,
   GRID_ROWS,
@@ -14,6 +13,7 @@ import {
   MAX_PAGES,
   emptyTiles,
   normalizeTiles,
+  type Appearance,
   type BridgeSnapshot,
   type BrowseFileResult,
   type DeckTile,
@@ -31,11 +31,13 @@ import {
   makePairingPin,
   parseClientMessage,
   type ClientMessage,
+  type DecryptedReconnect,
   type DeviceHello,
   type PairingPayload,
   type ServerMessage,
 } from '../shared/protocol';
 import { listDesktopApps, iconsForPaths, iconDataUrl } from './apps';
+import { deriveKey, decryptEnvelope, encryptEnvelope } from './crypto';
 import { executeTile } from './executor';
 import {
   closeIconRasterizer,
@@ -67,6 +69,9 @@ type LiveSocket = {
   socket: WebSocket;
   deviceId: string;
   ip: string;
+  sessionKey?: Buffer;
+  inSeq: number;
+  outSeq: number;
 };
 
 type PendingPair = {
@@ -93,12 +98,18 @@ let port = DEFAULT_PORT;
 let hostName = 'NudgeBoard';
 let hostOs = 'Windows';
 let selectedHost = '';
+export const WINDOW_CHROME = {
+  dark: { backgroundColor: '#0b0b0c', symbolColor: '#d4d4d8' },
+  light: { backgroundColor: '#f7f4ee', symbolColor: '#1c1917' },
+} as const;
+
 let persisted: PersistedState = {
   fingerprint: '00:00:00',
   devices: [],
   activeDeviceId: null,
   tilesByDevice: {},
   customFlows: [],
+  appearance: 'dark',
 };
 let session: Session | null = null;
 let lastPairedId: string | null = null;
@@ -230,6 +241,25 @@ const tilesFor = (deviceId: string | null): Array<DeckTile | null> => {
   return tiles;
 };
 
+export const currentAppearance = (): Appearance =>
+  persisted.appearance === 'light' ? 'light' : 'dark';
+
+export const applyAppearanceChrome = (): void => {
+  const mode = currentAppearance();
+  nativeTheme.themeSource = mode;
+  const chrome = WINDOW_CHROME[mode];
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.setBackgroundColor(chrome.backgroundColor);
+    if (process.platform === 'win32') {
+      win.setTitleBarOverlay({
+        color: chrome.backgroundColor,
+        symbolColor: chrome.symbolColor,
+        height: 36,
+      });
+    }
+  }
+};
+
 const snapshot = (): BridgeSnapshot => ({
   hostName,
   fingerprint: persisted.fingerprint,
@@ -239,6 +269,7 @@ const snapshot = (): BridgeSnapshot => ({
   lastPairedId,
   tiles: tilesFor(persisted.activeDeviceId),
   customFlows: persisted.customFlows ?? [],
+  appearance: currentAppearance(),
 });
 
 const sendToRenderer = (): void => {
@@ -249,9 +280,26 @@ const sendToRenderer = (): void => {
 };
 
 const send = (socket: WebSocket, message: ServerMessage): void => {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
+  if (socket.readyState !== WebSocket.OPEN) {
+    return;
   }
+  const connection = live.get(socket);
+  if (
+    connection?.sessionKey &&
+    message.type !== 'hello_ok' &&
+    message.type !== 'hello_err' &&
+    message.type !== 'encrypted'
+  ) {
+    const envelope = encryptEnvelope(
+      connection.sessionKey,
+      message,
+      connection.outSeq,
+    );
+    connection.outSeq += 1;
+    socket.send(JSON.stringify(envelope));
+    return;
+  }
+  socket.send(JSON.stringify(message));
 };
 
 const pushDeck = (deviceId: string): void => {
@@ -470,6 +518,7 @@ const acceptDevice = (
 ): string => {
   dropDeviceId(device.id);
   const token = randomBytes(TOKEN_BYTES).toString('hex');
+  const sessionKey = deriveKey(token);
   const stored: StoredDevice = {
     id: device.id,
     name: device.name,
@@ -478,6 +527,7 @@ const acceptDevice = (
     platform: device.platform,
     fingerprint: device.fingerprint,
     tokenHash: hashToken(token),
+    tokenKey: sessionKey.toString('hex'),
     trusted,
     pairedAt: Date.now(),
   };
@@ -494,7 +544,14 @@ const acceptDevice = (
     persisted.tilesByDevice[device.id] = emptyTiles();
   }
   save();
-  live.set(socket, { socket, deviceId: device.id, ip });
+  live.set(socket, {
+    socket,
+    deviceId: device.id,
+    ip,
+    sessionKey,
+    inSeq: 1,
+    outSeq: 1,
+  });
   send(socket, helloOk(token));
   pushDeck(device.id);
   return token;
@@ -611,16 +668,41 @@ const finishPending = (): VerifyResult => {
   return { ok: true, snapshot: snapshot() };
 };
 
-const handleReconnect = (
+const handleReconnectEnc = (
   socket: WebSocket,
-  message: Extract<ClientMessage, { type: 'reconnect' }>,
+  message: Extract<ClientMessage, { type: 'reconnect_enc' }>,
   ip: string,
 ): void => {
-  const stored = persisted.devices.find(
-    (item) =>
-      item.id === message.device.id && tokenHashMatch(message.token, item.tokenHash),
+  if (ipThrottled(ip)) {
+    send(socket, { type: 'hello_err', reason: 'Too many attempts. Wait and try again.' });
+    socket.close();
+    return;
+  }
+  const stored = persisted.devices.find((item) => item.id === message.id);
+  if (!stored || !stored.trusted || !stored.tokenKey) {
+    recordAuthFailure(ip);
+    send(socket, {
+      type: 'hello_err',
+      reason: 'This computer does not recognize the phone. Pair again.',
+    });
+    socket.close();
+    return;
+  }
+  const sessionKey = Buffer.from(stored.tokenKey, 'hex');
+  const decrypted = decryptEnvelope<DecryptedReconnect>(
+    sessionKey,
+    {
+      iv: message.iv,
+      data: message.data,
+      tag: message.tag,
+      seq: message.seq,
+    },
+    1,
   );
-  if (!stored || !stored.trusted) {
+  if (!decrypted || !tokenHashMatch(decrypted.token, stored.tokenHash)) {
+    if (recordAuthFailure(ip)) {
+      return;
+    }
     send(socket, {
       type: 'hello_err',
       reason: 'This computer does not recognize the phone. Pair again.',
@@ -629,13 +711,65 @@ const handleReconnect = (
     return;
   }
 
+  stored.name = decrypted.device.name;
+  stored.model = decrypted.device.model;
+  stored.os = decrypted.device.os;
+  stored.fingerprint = decrypted.device.fingerprint;
+  save();
+  dropDeviceId(stored.id);
+  live.set(socket, {
+    socket,
+    deviceId: stored.id,
+    ip,
+    sessionKey,
+    inSeq: 2,
+    outSeq: 1,
+  });
+  send(socket, helloOk());
+  pushDeck(stored.id);
+  sendToRenderer();
+};
+
+const handleReconnect = (
+  socket: WebSocket,
+  message: Extract<ClientMessage, { type: 'reconnect' }>,
+  ip: string,
+): void => {
+  if (ipThrottled(ip)) {
+    send(socket, { type: 'hello_err', reason: 'Too many attempts. Wait and try again.' });
+    socket.close();
+    return;
+  }
+  const stored = persisted.devices.find(
+    (item) =>
+      item.id === message.device.id && tokenHashMatch(message.token, item.tokenHash),
+  );
+  if (!stored || !stored.trusted) {
+    recordAuthFailure(ip);
+    send(socket, {
+      type: 'hello_err',
+      reason: 'This computer does not recognize the phone. Pair again.',
+    });
+    socket.close();
+    return;
+  }
+
+  const sessionKey = deriveKey(message.token);
+  stored.tokenKey = sessionKey.toString('hex');
   stored.name = message.device.name;
   stored.model = message.device.model;
   stored.os = message.device.os;
   stored.fingerprint = message.device.fingerprint;
   save();
   dropDeviceId(stored.id);
-  live.set(socket, { socket, deviceId: stored.id, ip });
+  live.set(socket, {
+    socket,
+    deviceId: stored.id,
+    ip,
+    sessionKey,
+    inSeq: 1,
+    outSeq: 1,
+  });
   send(socket, helloOk());
   pushDeck(stored.id);
   sendToRenderer();
@@ -683,6 +817,34 @@ const handleMessage = (socket: WebSocket, raw: string): void => {
   }
 
   const ip = remoteIp(socket);
+  if (message.type === 'encrypted') {
+    const connection = live.get(socket);
+    if (!connection || !connection.sessionKey) {
+      return;
+    }
+    const inner = decryptEnvelope<{ type: string; id?: string }>(
+      connection.sessionKey,
+      message,
+      connection.inSeq,
+    );
+    if (!inner) {
+      return;
+    }
+    connection.inSeq += 1;
+    if (inner.type === 'press' && typeof inner.id === 'string') {
+      handlePress(socket, { type: 'press', id: inner.id });
+      return;
+    }
+    if (inner.type === 'logout') {
+      handleLogout(socket);
+      return;
+    }
+    return;
+  }
+  if (message.type === 'reconnect_enc') {
+    handleReconnectEnc(socket, message, ip);
+    return;
+  }
   if (message.type === 'reconnect') {
     handleReconnect(socket, message, ip);
     return;
@@ -790,7 +952,11 @@ export const startBridge = async (): Promise<void> => {
   hostName = hostname() || 'NudgeBoard';
   hostOs = desktopOs();
   persisted = loadPersisted();
+  if (persisted.appearance !== 'light' && persisted.appearance !== 'dark') {
+    persisted.appearance = 'dark';
+  }
   save();
+  applyAppearanceChrome();
   selectedHost = listLanHosts()[0] ?? '127.0.0.1';
   port = await listen(DEFAULT_PORT, selectedHost);
 
@@ -1061,6 +1227,13 @@ export const startBridge = async (): Promise<void> => {
   ipcMain.handle('bridge:remove-device', (_event, id: string) => {
     unpairDevice(id);
     save();
+    sendToRenderer();
+    return snapshot();
+  });
+  ipcMain.handle('bridge:set-appearance', (_event, mode: unknown) => {
+    persisted.appearance = mode === 'light' ? 'light' : 'dark';
+    save();
+    applyAppearanceChrome();
     sendToRenderer();
     return snapshot();
   });

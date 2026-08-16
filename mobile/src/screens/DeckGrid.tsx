@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { GRID_COLUMNS, GRID_ROWS, GRID_SLOTS, type DeckTileView } from '../protocol';
-import { colors } from '../theme';
+import { type Palette, useThemedStyles } from '../theme';
 
-const palette = colors.dark;
 const GAP = 10;
 
 type Props = {
@@ -20,14 +19,23 @@ const isBitmapIcon = (uri?: string): boolean => {
   );
 };
 
+type GridStyles = ReturnType<typeof makeStyles>;
+
 type FilledTileProps = {
   tile: DeckTileView;
   tileSize: number;
   iconSize: number;
+  styles: GridStyles;
   onPressTile?: (id: string) => void;
 };
 
-function FilledTile({ tile, tileSize, iconSize, onPressTile }: FilledTileProps) {
+function FilledTile({
+  tile,
+  tileSize,
+  iconSize,
+  styles,
+  onPressTile,
+}: FilledTileProps) {
   const [iconFailed, setIconFailed] = useState(false);
   const glyph = [...tile.name][0];
   const showImage = isBitmapIcon(tile.icon) && !iconFailed;
@@ -64,6 +72,7 @@ function FilledTile({ tile, tileSize, iconSize, onPressTile }: FilledTileProps) 
 }
 
 export function DeckGrid({ tiles, onPressTile }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const [box, setBox] = useState<{ width: number; height: number } | undefined>(
     undefined,
   );
@@ -114,6 +123,7 @@ export function DeckGrid({ tiles, onPressTile }: Props) {
                 tile={tile}
                 tileSize={tileSize}
                 iconSize={iconSize}
+                styles={styles}
                 onPressTile={onPressTile}
               />
             );
@@ -124,55 +134,56 @@ export function DeckGrid({ tiles, onPressTile }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    minHeight: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: GAP,
-  },
-  tile: {
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: '#3a3f4a',
-    backgroundColor: palette.slot,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
-  },
-  filled: {
-    borderStyle: 'solid',
-    borderColor: '#2a2e36',
-  },
-  glyphWrap: {
-    borderRadius: 8,
-    backgroundColor: '#22262e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glyph: {
-    color: palette.text,
-    fontWeight: '700',
-  },
-  name: {
-    color: palette.muted,
-    fontSize: 11,
-    textAlign: 'center',
-    width: '100%',
-  },
-  plus: {
-    color: palette.muted,
-    fontSize: 28,
-    fontWeight: '500',
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-});
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
+    wrap: {
+      flex: 1,
+      minHeight: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    grid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: GAP,
+    },
+    tile: {
+      borderRadius: 16,
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+      borderColor: palette.border,
+      backgroundColor: palette.slot,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingHorizontal: 6,
+    },
+    filled: {
+      borderStyle: 'solid',
+      borderColor: palette.line,
+    },
+    glyphWrap: {
+      borderRadius: 8,
+      backgroundColor: palette.glyph,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    glyph: {
+      color: palette.text,
+      fontWeight: '700',
+    },
+    name: {
+      color: palette.muted,
+      fontSize: 11,
+      textAlign: 'center',
+      width: '100%',
+    },
+    plus: {
+      color: palette.muted,
+      fontSize: 28,
+      fontWeight: '500',
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+  });

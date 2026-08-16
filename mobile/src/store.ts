@@ -9,6 +9,7 @@ import {
   type PairingPayload,
 } from './protocol';
 import { secureProfileStorage } from './secureStore';
+import type { ThemeMode } from './theme/colors';
 
 export type ScreenName =
   | 'scan'
@@ -66,6 +67,8 @@ type AppState = {
   selectProfile: (fingerprint: string) => void;
   removeProfile: (fingerprint: string) => void;
   cancelPairing: () => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
 };
 
 type CryptoLike = { getRandomValues?: (array: Uint8Array) => Uint8Array };
@@ -127,6 +130,8 @@ export function makeOtp(): string {
     ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
   return String(100000 + (value % 900000));
 }
+
+export type { ThemeMode } from './theme/colors';
 
 export function upsertDesktop(
   profiles: DesktopProfile[],
@@ -319,6 +324,8 @@ export const useAppStore = create<AppState>()(
           hasDeck: false,
           screen: get().profiles.length > 0 ? 'profiles' : 'scan',
         }),
+      theme: 'dark',
+      setTheme: (theme) => set({ theme }),
     }),
     {
       name: 'nudgeboard-mobile',
@@ -328,6 +335,7 @@ export const useAppStore = create<AppState>()(
         fingerprint: state.fingerprint,
         profiles: state.profiles,
         activeFingerprint: state.activeFingerprint,
+        theme: state.theme,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) {
@@ -340,6 +348,9 @@ export const useAppStore = create<AppState>()(
         state.pin = null;
         state.deck = emptyDeck();
         state.hasDeck = false;
+        if (state.theme !== 'light' && state.theme !== 'dark') {
+          state.theme = 'dark';
+        }
       },
     },
   ),

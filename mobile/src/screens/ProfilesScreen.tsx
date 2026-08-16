@@ -1,14 +1,13 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAppStore, type DesktopProfile } from '../store';
-import { colors, spacing } from '../theme';
-
-const palette = colors.dark;
+import { ThemeToggle, spacing, type Palette, useThemedStyles } from '../theme';
 
 type Props = {
   onAdd: () => void;
 };
 
 export function ProfilesScreen({ onAdd }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const profiles = useAppStore((s) => s.profiles);
   const activeFingerprint = useAppStore((s) => s.activeFingerprint);
   const status = useAppStore((s) => s.status);
@@ -31,10 +30,13 @@ export function ProfilesScreen({ onAdd }: Props) {
   return (
     <View style={styles.content}>
       <View style={styles.top}>
-        <Text style={styles.brand}>NudgeBoard</Text>
-        {status === 'connected' ? (
-          <Text style={styles.linked}>• linked</Text>
-        ) : null}
+        <View style={styles.topCopy}>
+          <Text style={styles.brand}>NudgeBoard</Text>
+          {status === 'connected' ? (
+            <Text style={styles.linked}>• linked</Text>
+          ) : null}
+        </View>
+        <ThemeToggle />
       </View>
       <Text style={styles.title}>Your computers</Text>
       <Text style={styles.sub}>
@@ -83,7 +85,8 @@ export function ProfilesScreen({ onAdd }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
@@ -92,8 +95,15 @@ const styles = StyleSheet.create({
   },
   top: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  topCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
   },
   brand: {
     color: palette.muted,
@@ -158,10 +168,10 @@ const styles = StyleSheet.create({
     backgroundColor: palette.green,
   },
   dotOff: {
-    backgroundColor: '#6b7280',
+    backgroundColor: palette.handle,
   },
   error: {
-    color: '#FF6B6B',
+    color: palette.error,
   },
   button: {
     minHeight: 52,
@@ -171,7 +181,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   buttonLabel: {
-    color: palette.text,
+    color: palette.onPurple,
     fontWeight: '700',
   },
   pressed: {

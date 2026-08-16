@@ -1,21 +1,21 @@
 # NudgeBoard Architecture & Communication Flow
 
-This document details the internal architecture, network protocol, and end-to-end code flows connecting the **NudgeBoard Desktop Application** (Electron/Node.js/React) and the **NudgeBoard Mobile Application** (React Native/Android/iOS).
+This document details the internal architecture, network protocol, cryptographic design, and end-to-end code flows connecting the **NudgeBoard Desktop Application** (Electron/Node.js/React) and the **NudgeBoard Mobile Application** (React Native/Android/iOS).
 
 ---
 
 ## 1. High-Level System Architecture
 
-NudgeBoard transforms a smartphone into a dedicated physical macro pad / Stream Deck for your computer. It operates entirely over the Local Area Network (LAN) with zero cloud dependencies or external relay servers.
+NudgeBoard transforms a smartphone into a dedicated physical macro pad / Stream Deck for your computer. It operates entirely over the Local Area Network (LAN) with zero cloud dependencies or external relay servers, protected by application-layer AES-256-GCM End-to-End Encryption (E2EE).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                   LOCAL NETWORK (Wi-Fi / LAN)                          │
 │                                                                                        │
-│   ┌─────────────────────────────────────────┐   WebSocket (Port 47890)                 │
+│   ┌─────────────────────────────────────────┐   E2EE WebSocket (Port 47890)            │
 │   │        NudgeBoard Mobile App            │◄─────────────────────────────┐           │
 │   │  (React Native + VisionCamera + Zustand)│────────────────────────────┐ │           │
-│   └─────────────────────────────────────────┘   JSON RPC / Protocol      │ │           │
+│   └─────────────────────────────────────────┘   AES-256-GCM Envelopes    │ │           │
 │                                                                          ▼ │           │
 │                                                 HTTP Discovery Probes    ┌─┴─────────┐ │
 │                                                 (GET /nudgeboard/pairing)│ Desktop   │ │
@@ -28,18 +28,19 @@ NudgeBoard transforms a smartphone into a dedicated physical macro pad / Stream 
 ### Component Breakdown
 
 1. **Desktop Host (`desktop-app/`)**
-   - **Main Process (`src/main/`)**: Hosts the HTTP/WebSocket bridge server (`bridge.ts`), scans installed operating system applications (`apps.ts`), renders PNG app icons to base64 data URLs, manages secure multi-device pairings (`persist.ts`), and executes desktop processes.
+   - **Main Process (`src/main/`)**: Hosts the HTTP/WebSocket bridge server (`bridge.ts`), executes AES-256-GCM message encryption/decryption (`crypto.ts`), scans installed operating system applications (`apps.ts`), renders PNG app icons to base64 data URLs, manages secure multi-device pairings (`persist.ts`), and executes desktop processes.
    - **Preload Script (`src/preload/preload.ts`)**: Exposes safe, typed IPC APIs (`window.api`) across the Electron context boundary using `contextBridge`.
    - **Renderer Process (`src/renderer/`)**: React 19 UI providing visual deck layout designer (4×2 slot grid), app search & drag-and-drop assignment, QR/OTP pairing dialogs, and multi-phone switching.
 
 2. **Mobile Client (`mobile/`)**
-   - **App Core (`src/App.tsx`, `src/store.ts`)**: Manages UI state, navigation flow, active computer profiles, and WebSocket connection lifecycle via Zustand with `AsyncStorage` persistence.
+   - **App Core (`src/App.tsx`, `src/store.ts`)**: Manages UI state, navigation flow, active computer profiles, and WebSocket connection lifecycle via Zustand with `AsyncStorage` persistence and Keystore/Keychain integration.
+   - **Crypto Engine (`src/crypto.ts`)**: Native-accelerated AES-256-GCM encryption and decryption backed by Kotlin (`Cipher.getInstance("AES/GCM/NoPadding")`) on Android and Swift (`CryptoKit.AES.GCM`) on iOS, with Node/WebCrypto test fallback.
    - **Scanner & Identity (`src/pairing.ts`, `src/deviceIdentity.ts`)**: Fast QR barcode decoding via `react-native-vision-camera`, native device identity resolution via Android Kotlin module (`DeviceNameModule.kt`), and automated subnet probing (`lan.ts`).
    - **Deck Surface (`src/screens/DeckScreen.tsx`, `src/screens/DeckGrid.tsx`)**: Responsive 4×2 macro pad grid with multi-page horizontal carousel (up to 8 pages), live link indicators, and touch triggers.
 
 ---
 
-## 2. Wire Protocol & Data Specifications
+## 2. Wire Protocol & Cryptographic Specifications
 
 Both desktop and mobile share identical protocol types defined in `desktop-app/src/shared/protocol.ts` and `mobile/src/protocol.ts`.
 
@@ -85,9 +86,30 @@ nb1|DESKTOP-DEV|Windows 11|192.168.1.45|47890|a1b2c3d4e5f60718293a4b5c6d7e8f90|7
 
 ---
 
-### 2.3 Message Exchange Schema
+### 2.3 Message Exchange Schema & Cryptographic Envelopes
 
-All messages sent over WebSocket are UTF-8 JSON objects.
+All WebSocket messages are UTF-8 JSON objects. After handshake/authentication, all message payloads are enveloped in AES-256-GCM ciphertext frames with sequence counter verification.
+
+#### Cryptographic Envelope (`EncryptedEnvelope`)
+
+```typescript
+type EncryptedEnvelope = {
+  type: 'encrypted';
+  iv: string;   // Base64-encoded 12-byte random Initialization Vector (IV)
+  data: string; // Base64-encoded ciphertext payload
+  tag: string;  // Base64-encoded 16-byte (128-bit) GCM authentication tag
+  seq: number;  // Monotonically increasing sequence number (1, 2, 3...)
+};
+```
+
+**Additional Authenticated Data (AAD)**:
+Every envelope binds the sequence counter to the GCM tag using `AAD = UTF8("seq:" + seq)`. Any packet reordering, truncation, or replay causes immediate GCM authentication failure and socket termination.
+
+#### Key Derivation Function (KDF)
+When paired, the permanent 16-byte token is transformed into a 256-bit symmetric session key via HMAC-SHA256:
+```
+sessionKey = HMAC-SHA256(key = "nudgeboard-e2ee-v1", data = token)
+```
 
 #### Mobile to Desktop (`ClientMessage`)
 
@@ -106,17 +128,32 @@ type ClientMessage =
       pin: string;            // 6-digit PIN displayed on Desktop
       device: DeviceHello;
     }
-  // 3. Reconnect saved session
+  // 3. Encrypted session reconnect (zero cleartext exposure)
+  | {
+      type: 'reconnect_enc';
+      id: string;             // Device identifier
+      iv: string;
+      data: string;           // Encrypted DecryptedReconnect payload
+      tag: string;
+      seq: number;
+    }
+  // 4. Legacy session reconnect
   | {
       type: 'reconnect';
-      token: string;          // Previously saved auth token
+      token: string;
       device: DeviceHello;
     }
-  // 4. Trigger action on desktop
+  // 5. Trigger action on desktop
   | {
       type: 'press';
       id: string;             // Identifier of the app/shortcut tile
-    };
+    }
+  // 6. Logout / Unpair
+  | {
+      type: 'logout';
+    }
+  // 7. Encrypted frame wrapper (press, logout, etc.)
+  | EncryptedEnvelope;
 ```
 
 #### Desktop to Mobile (`ServerMessage`)
@@ -128,7 +165,7 @@ type ServerMessage =
       type: 'hello_ok';
       hostName: string;
       fingerprint: string;
-      token: string;
+      token?: string;         // Issued once after successful pair
       host: string;
       port: number;
       os: string;
@@ -137,6 +174,10 @@ type ServerMessage =
   | {
       type: 'hello_err';
       reason: string;
+    }
+  // Unpair notice
+  | {
+      type: 'logged_out';
     }
   // Deck configuration & icon payload
   | {
@@ -148,7 +189,9 @@ type ServerMessage =
         name: string;
         icon?: string;        // Base64 PNG data URL ('data:image/png;base64,...')
       } | null>;
-    };
+    }
+  // Encrypted frame wrapper (deck, logged_out, etc.)
+  | EncryptedEnvelope;
 ```
 
 ---
@@ -161,20 +204,21 @@ type ServerMessage =
   [ Flow 1: QR Pairing ]    [ Flow 2: PIN Pairing ]    [ Flow 3: App Execution ]
           │                         │                          │
   1. Desktop shows QR       1. Desktop shows PIN       1. Phone taps Tile
-  2. Phone scans QR         2. Phone scans LAN Subnet  2. WS: {type: 'press'}
-  3. Phone sends OTP        3. Phone sends PIN         3. PC runs app launcher
+  2. Phone scans QR         2. Phone scans LAN Subnet  2. Encrypts: {press} (seq: N)
+  3. Phone sends OTP        3. Phone sends PIN         3. PC decrypts & authenticates
   4. User enters OTP on PC  4. PC verifies PIN                 │
   5. PC verifies & binds    5. PC binds & syncs deck           ▼
-          │                         │                  Process Launched!
+  6. Derives E2EE Key       6. Derives E2EE Key        Process Launched!
+          │                         │
           └────────────┬────────────┘
                        ▼
-               Live WebSocket Link
-             Full Deck & Icons Synced
+              AES-256-GCM Link
+          Full Deck & Icons Encrypted
 ```
 
 ---
 
-### Flow 1: QR Code Pairing & Verification (Standard Flow)
+### Flow 1: QR Code Pairing & E2EE Key Derivation
 
 This is the primary zero-friction setup path.
 
@@ -182,12 +226,10 @@ This is the primary zero-friction setup path.
 Mobile (Phone)                               Desktop Host (PC)
       │                                              │
       │                                      1. startPairing()
-      │                                         - Generate token (16-byte hex)
-      │                                         - Generate 3-byte fingerprint
-      │                                         - Render QR code data URL
+      │                                         - Generate ephemeral token
+      │                                         - Render QR code
       │                                              │
       │ 2. Camera scans QR                           │
-      │    (parsePairingPayload)                     │
       │                                              │
       │ 3. Generate 6-digit OTP                      │
       │    Open ws://host:port                       │
@@ -195,146 +237,95 @@ Mobile (Phone)                               Desktop Host (PC)
       │    { type: 'hello', token, otp, device }     │
       │                                              │
       │                                      4. handleHello()
-      │                                         - Match token
       │                                         - Store pending connection
-      │                                         - UI transitions to Step 2 (OTP)
+      │                                         - Prompt desktop user for OTP
       │ 5. Display OTP on phone screen               │
       │                                      6. User types OTP in Desktop UI
-      │                                         - bridge:verify-otp IPC
       │                                         - crypto.timingSafeEqual()
       │                                         - acceptDevice()
-      │                                         - Persist to nudgeboard.json
+      │                                         - Generate permanent device token
+      │                                         - sessionKey = deriveKey(token)
+      │                                         - Persist tokenHash & tokenKey
       │                                              │
-      │ 7. Receive hello_ok & deck                   │
+      │ 7. Receive hello_ok { token }                │
       │ ◄─────────────────────────────────────────── │
-      │    { type: 'hello_ok', token, ... }          │
-      │    { type: 'deck', columns, rows, tiles }    │
+      │    sessionKey = deriveKey(token)             │
       │                                              │
-      │ 8. Store DesktopProfile                      │
+      │ 8. Receive Encrypted Deck (seq: 1)           │
+      │ ◄─────────────────────────────────────────── │
+      │    { type: 'encrypted', iv, data, tag, 1 }   │
+      │    Decrypts -> { type: 'deck', tiles, ... }  │
+      │                                              │
+      │ 9. Save DesktopProfile (Secure Storage)      │
       │    Render DeckGrid                           │
 ```
 
-#### Code Path Analysis:
-1. **Desktop Initiation (`desktop-app/src/main/bridge.ts`)**:
-   `startPairing()` generates a cryptographically random token, calculates host LAN IPs (`listLanHosts()`), builds `PairingPayload`, and creates a QR image via `QRCode.toDataURL()`.
-2. **Mobile Scan (`mobile/src/screens/ScanScreen.tsx`)**:
-   VisionCamera's `useBarcodeScannerOutput` captures QR raw data. `parsePairingPayload()` in `mobile/src/protocol.ts` parses compact `nb1|...` format or JSON.
-3. **Mobile Dispatch (`mobile/src/App.tsx`)**:
-   `useBridgeConnection` creates an ephemeral random OTP via `makeOtp()`, enters `connecting` state, and sends `ClientMessage.hello` over WebSocket.
-4. **Desktop OTP Check (`desktop-app/src/main/bridge.ts`)**:
-   `ipcMain.handle('bridge:verify-otp')` compares the user-entered code against `session.pending.otp` using `timingSafeEqual(Buffer.from(expected), Buffer.from(received))`.
-5. **State Persist & Deck Sync (`desktop-app/src/main/persist.ts`)**:
-   The device is registered in `persisted.devices`, stored in `%APPDATA%/Nudgeboard/nudgeboard.json` (or OS equivalent), and `pushDeck()` sends all assigned application tiles with cached base64 icons.
-
 ---
 
-### Flow 2: Manual 6-Digit PIN Pairing & LAN Subnet Discovery (Fallback Flow)
+### Flow 2: Manual 6-Digit PIN Pairing
 
-When the phone camera is unavailable, the user can type the 6-digit PIN displayed on the desktop.
+When camera scanning is unavailable, the user can type the 6-digit PIN displayed on the desktop.
 
 ```
 Mobile (Phone)                               Desktop Host (PC)
       │                                              │
       │                                      1. Desktop displays PIN
-      │                                         (makePairingPin)
       │                                         Exposes GET /nudgeboard/pairing
       │                                              │
       │ 2. User enters 6-digit PIN                   │
-      │                                              │
       │ 3. Subnet Auto-Discovery                     │
-      │    (mobile/src/lan.ts: findPairingHost)      │
-      │    Probes subnet in parallel (32 workers)    │
-      │    GET http://192.168.1.X:47890/nudgeboard/pairing
-      │ ───────────────────────────────────────────► │
-      │ ◄─────────────────────────────────────────── │ (HTTP 200 { app: 'nudgeboard' })
-      │                                              │
+      │    (lan.ts: findPairingHost)                 │
       │ 4. Open ws://<discovered-ip>:47890           │
       │ ───────────────────────────────────────────► │
       │    { type: 'hello_pin', pin, device }        │
       │                                              │
-      │                                      5. handleHelloPin()
-      │                                         - timingSafeEqual(session.pin, pin)
+      │                                      5. Desktop shows confirmation
+      │                                         User clicks Confirm
       │                                         - acceptDevice()
+      │                                         - sessionKey = deriveKey(token)
       │                                              │
-      │ 6. Receive hello_ok & deck                   │
+      │ 6. Receive hello_ok { token }                │
+      │ ◄─────────────────────────────────────────── │
+      │    sessionKey = deriveKey(token)             │
+      │ 7. Receive Encrypted Deck (seq: 1)           │
       │ ◄─────────────────────────────────────────── │
 ```
 
-#### Code Path Analysis:
-1. **LAN Candidate Generation (`mobile/src/lan.ts` & `DeviceNameModule.kt`)**:
-   Android/iOS native module retrieves the device's local IP (e.g. `192.168.1.64`). `lanCandidates()` generates the `/24` subnet host list (`192.168.1.1` to `192.168.1.254`).
-2. **Concurrent Probing (`mobile/src/lan.ts`)**:
-   `findPairingHost()` spawns 32 asynchronous worker routines using `fetch()` with an `AbortController` timeout of 280ms per probe.
-3. **HTTP Health Check (`desktop-app/src/main/bridge.ts`)**:
-   The internal Node HTTP server intercepts `GET /nudgeboard/pairing` and returns `{ app: 'nudgeboard', name: hostName, fingerprint }`.
-4. **PIN Validation (`desktop-app/src/main/bridge.ts`)**:
-   `handleHelloPin()` verifies the PIN, authenticates the device, persists the session token, and sends back `hello_ok` + `deck`.
-
 ---
 
-### Flow 3: Session Reconnection
+### Flow 3: Encrypted Session Reconnection (`reconnect_enc`)
 
-When the mobile app is reopened or a saved computer profile is tapped:
+When the mobile app is reopened, reconnecting does not transmit cleartext credentials:
 
 ```
 Mobile (Phone)                               Desktop Host (PC)
       │                                              │
-      │ 1. Load saved DesktopProfile                 │
-      │    from AsyncStorage                         │
+      │ 1. Load token from SecureStorage             │
+      │    sessionKey = deriveKey(token)             │
       │                                              │
-      │ 2. Open ws://host:port                       │
-      │    { type: 'reconnect', token, device }      │
+      │ 2. Encrypt Reconnect Payload:                │
+      │    { token, device, ts: Date.now() }         │
+      │    with sessionKey (seq: 1)                  │
+      │                                              │
+      │ 3. Open ws://host:port                       │
+      │    Send { type: 'reconnect_enc', id, ... }   │
       │ ───────────────────────────────────────────► │
       │                                              │
-      │                                      3. handleReconnect()
-      │                                         - Lookup device.id & token
-      │                                           in persisted.devices
-      │                                         - Update device name/hints
+      │                                      4. handleReconnectEnc()
+      │                                         - Lookup device by id
+      │                                         - Decrypt with stored.tokenKey
+      │                                         - Verify GCM tag (AAD seq:1)
+      │                                         - Verify tokenHashMatch()
       │                                              │
-      │ 4. Session Restored                          │
+      │ 5. Session Restored                          │
       │ ◄─────────────────────────────────────────── │
       │    { type: 'hello_ok', ... }                 │
-      │    { type: 'deck', tiles, ... }              │
+      │    { type: 'encrypted', data: deck, ... }    │
 ```
 
 ---
 
-### Flow 4: Deck Tile Configuration & Live Icon Extraction
-
-```
-Desktop Renderer (UI)            Desktop Main Process            Mobile App (Phone)
-         │                                │                              │
- 1. User drags app to slot                │                              │
- 2. window.api.setTile(index, tile)       │                              │
-    ────────────────────────────────────► │                              │
-                                  3. Update tiles array                  │
-                                     persist.save()                      │
-                                  4. iconsForPaths([paths])              │
-                                     - Native thumbnail extract          │
-                                     - AppX manifest parser              │
-                                     - Windows .lnk resolve              │
-                                     - Convert to Base64 PNG             │
-                                  5. Broadcast deck over WS              │
-                                     ──────────────────────────────────► │
-                                                                  6. DeckGrid updates
-                                                                     Renders app icon
-```
-
-#### Desktop Application Detection (`desktop-app/src/main/apps.ts`):
-- **Windows**:
-  - Scans Start Menu folders (`%ProgramData%`, `%APPDATA%`) for `.lnk` and `.url` shortcuts.
-  - Queries PowerShell `Get-StartApps` and reads registry AppModel package repositories for modern UWP / MSIX Store apps.
-  - Extracts logos from `AppxManifest.xml` (`Square44x44Logo`, `scale-200.png`, `targetsize-256.png`).
-  - Resolves `.lnk` icons using Electron's `shell.readShortcutLink()` and `app.getFileIcon()`.
-- **macOS**:
-  - Scans `/Applications` and `~/Applications` for `.app` packages.
-  - Extracts app bundle icons using `nativeImage.createThumbnailFromPath()`.
-- **Linux**:
-  - Scans `/usr/share/applications` and `~/.local/share/applications` for `.desktop` entries.
-
----
-
-### Flow 5: Action Remote Execution
+### Flow 4: Action Remote Execution
 
 When a user taps an assigned macro tile on their phone:
 
@@ -343,19 +334,20 @@ Mobile Client (Phone)                         Desktop Main (PC)
       │                                              │
  1. User taps Tile in DeckGrid                       │
     onPressTile(tile.id)                             │
- 2. Send WebSocket packet:                           │
-    { type: 'press', id: "tile-app-id" }             │
+ 2. Encrypt payload with AES-256-GCM:                │
+    payload = { type: 'press', id: "tile-app-id" }   │
+    envelope = encryptEnvelope(sessionKey, payload,  │
+                               outSeq++)             │
+ 3. Send WebSocket packet:                           │
+    { type: 'encrypted', iv, data, tag, seq }        │
     ───────────────────────────────────────────────► │
-                                             3. handlePress()
-                                                - Locate tile by ID for device
+                                             4. handleMessage()
+                                                - Validate message.seq === inSeq
+                                                - Decrypt with sessionKey
+                                                - inSeq++
+                                                - Locate tile by ID
                                                 - launchDesktopApp(tile.path)
-                                             4. Platform-specific execution:
-                                                - Windows shell URI / App:
-                                                  spawn('explorer.exe', [path])
-                                                - URL / Protocol:
-                                                  shell.openExternal(path)
-                                                - Standard executable / file:
-                                                  shell.openPath(path)
+                                             5. Platform-specific execution
                                                      │
                                                      ▼
                                             Target App Launches!
@@ -369,6 +361,7 @@ Mobile Client (Phone)                         Desktop Main (PC)
 nudgeboard/
 ├── ARCHITECTURE.md                 # Technical specification and architecture guide (this file)
 ├── README.md                       # Project overview and quick start guide
+├── SECURITY_AUDIT.md               # Security audit and verification documentation
 │
 ├── desktop-app/                    # Electron Desktop Host Application
 │   ├── package.json                # Electron Forge, React 19, TypeScript dependencies
@@ -379,12 +372,15 @@ nudgeboard/
 │       ├── main/
 │       │   ├── main.ts             # Electron app lifecycle, window management, CSP rules
 │       │   ├── bridge.ts           # HTTP & WebSocket bridge server, pairing state machine
+│       │   ├── crypto.ts           # Node crypto AES-256-GCM envelope encrypt & decrypt
 │       │   ├── apps.ts             # OS app enumeration, icon extraction, process launcher
-│       │   └── persist.ts          # JSON state store for paired devices and deck configs
+│       │   ├── executor.ts         # Action execution, custom flows, URL & URI scheme validator
+│       │   ├── validate.ts         # IPC schema validator and sanitization engine
+│       │   └── persist.ts          # JSON state store with 0o600 restricted file permissions
 │       ├── preload/
 │       │   └── preload.ts          # contextBridge IPC interface (`window.api`)
 │       ├── shared/
-│       │   ├── protocol.ts         # Wire types, payload encoding/decoding, constants
+│       │   ├── protocol.ts         # Wire types, EncryptedEnvelope, validation, constants
 │       │   └── ipc-types.ts        # Typed IPC definitions, BridgeSnapshot schema
 │       └── renderer/
 │           ├── main.tsx            # React root mount
@@ -402,14 +398,19 @@ nudgeboard/
     ├── app.json                    # React Native app configuration
     ├── index.js                    # React Native entry point
     ├── android/                    # Android project (Gradle, Kotlin native modules)
-    │   └── app/src/main/java/com/mobile/
-    │       ├── DeviceNameModule.kt  # Native Android device name, OEM marketing name, LAN IP
+    │   └── app/src/main/java/com/nudgeboard/app/
+    │       ├── DeviceNameModule.kt  # Native Keystore secrets, SecureRandom, AES-GCM Cipher
     │       └── DeviceNamePackage.kt # React Native package binding
     ├── ios/                        # iOS Xcode project and CocoaPods configuration
+    │   └── mobile/
+    │       ├── NudgeDevice.swift    # Native Keychain secrets, SecRandom, CryptoKit AES.GCM
+    │       └── NudgeDevice.m        # React Native bridge export declarations
     └── src/
         ├── App.tsx                 # Root component, connection manager, safe area setup
+        ├── crypto.ts               # Hardware-accelerated AES-256-GCM envelope engine
         ├── protocol.ts             # Shared wire protocol types & validation logic
         ├── pairing.ts              # WebSocket client bridge, device identity assembly
+        ├── secureStore.ts          # Hybrid Keystore/Keychain split-token secure storage
         ├── lan.ts                  # Multi-threaded LAN scanner for automatic desktop discovery
         ├── store.ts                # Zustand store with AsyncStorage persistence
         ├── deviceIdentity.ts       # Cross-platform device naming heuristics
@@ -429,13 +430,17 @@ nudgeboard/
 
 ## 5. Security & Reliability Highlights
 
-1. **Local-Only Communication**:
-   - The WebSocket server binds strictly to the local network interface. No traffic routes through public servers.
-2. **Timing-Safe Authentication**:
-   - OTP and PIN validations utilize Node's `crypto.timingSafeEqual()` to protect against timing side-channel attacks.
-3. **Session Expiry**:
-   - QR codes expire after 5 minutes (`QR_TTL_MS`); OTP verification codes expire after 2 minutes (`OTP_TTL_MS`).
-4. **Sandboxed Renderer**:
-   - Electron windows run with `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`, enforcing Content Security Policies (`default-src 'self'`).
-5. **Per-Device Deck Storage**:
-   - The desktop host saves distinct layout maps (`tilesByDevice[deviceId]`) so multiple family or team devices can customize their own macro layouts independently.
+1. **Application-Layer End-to-End Encryption (AES-256-GCM)**:
+   - All communications after initial handshake (deck layouts, icon payloads, button presses, session reconnection) are encrypted using 256-bit AES in Galois/Counter Mode. Packet contents cannot be snooped or altered by adversaries on shared or public Wi-Fi networks.
+2. **Anti-Replay Protection with AAD Sequence Counters**:
+   - Each message in either direction includes a monotonically increasing sequence number verified as Additional Authenticated Data (`AAD = "seq:" + seq`). Any replay or dropped frame causes immediate authentication failure.
+3. **Hardware-Backed Cryptographic Key Storage**:
+   - Long-lived mobile pairing secrets are protected with Android `EncryptedSharedPreferences` (AES-256-SIV + AES-256-GCM backed by Android Keystore) and iOS `Keychain` (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`).
+4. **Desktop Host Token Hashing**:
+   - The desktop host stores only SHA-256 token hashes (`tokenHash`) and derived session keys (`tokenKey`) on disk with restricted POSIX permissions (`0o600`), preventing plaintext token extraction from filesystem dumps.
+5. **Constant-Time Verification**:
+   - Verification tokens and pairing codes use `crypto.timingSafeEqual()` to protect against side-channel timing analysis.
+6. **Private LAN Scoping**:
+   - Host endpoints and connection targets are validated against RFC1918 private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `127.0.0.1`), rejecting public Internet IPs.
+7. **Rate Limiting & Lockout**:
+   - Authentication attempts are limited per IP address with exponential backoff to prevent brute-force attacks against pairing PINs and OTPs.

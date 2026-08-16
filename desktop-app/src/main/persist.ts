@@ -4,6 +4,7 @@ import { join } from 'path';
 import { app } from 'electron';
 import { type CustomFlow, type DeckTile } from '../shared/ipc-types';
 import { formatFingerprint, type DevicePlatform } from '../shared/protocol';
+import { deriveKeyHex } from './crypto';
 import { sanitizeCustomFlow } from './validate';
 
 export type StoredDevice = {
@@ -14,6 +15,7 @@ export type StoredDevice = {
   platform: DevicePlatform;
   fingerprint: string;
   tokenHash: string;
+  tokenKey?: string;
   trusted: boolean;
   pairedAt: number;
 };
@@ -24,6 +26,7 @@ export type PersistedState = {
   activeDeviceId: string | null;
   tilesByDevice: Record<string, Array<DeckTile | null>>;
   customFlows: CustomFlow[];
+  appearance: 'light' | 'dark';
 };
 
 type LegacyDevice = StoredDevice & { token?: string };
@@ -37,6 +40,7 @@ export const emptyState = (): PersistedState => ({
   activeDeviceId: null,
   tilesByDevice: {},
   customFlows: [],
+  appearance: 'dark',
 });
 
 export const persistPath = (): string =>
@@ -55,6 +59,13 @@ const migrateDevice = (raw: LegacyDevice): StoredDevice | null => {
   if (!tokenHash) {
     return null;
   }
+  const tokenKey =
+    typeof raw.tokenKey === 'string' && raw.tokenKey.length === 64
+      ? raw.tokenKey
+      : typeof raw.token === 'string' && raw.token.length >= 8
+        ? deriveKeyHex(raw.token)
+        : undefined;
+
   return {
     id: raw.id,
     name: raw.name,
@@ -63,6 +74,7 @@ const migrateDevice = (raw: LegacyDevice): StoredDevice | null => {
     platform: raw.platform,
     fingerprint: raw.fingerprint,
     tokenHash,
+    tokenKey,
     trusted: raw.trusted === true,
     pairedAt: Number(raw.pairedAt) || Date.now(),
   };
@@ -96,6 +108,7 @@ export const loadPersisted = (): PersistedState => {
           ? raw.tilesByDevice
           : {},
       customFlows,
+      appearance: raw.appearance === 'light' ? 'light' : 'dark',
     };
   } catch {
     return emptyState();
@@ -105,6 +118,7 @@ export const loadPersisted = (): PersistedState => {
 export const savePersisted = (state: PersistedState): void => {
   const sanitized: PersistedState = {
     ...state,
+    appearance: state.appearance === 'light' ? 'light' : 'dark',
     devices: state.devices.map((device) => ({
       id: device.id,
       name: device.name,
@@ -113,6 +127,7 @@ export const savePersisted = (state: PersistedState): void => {
       platform: device.platform,
       fingerprint: device.fingerprint,
       tokenHash: device.tokenHash,
+      tokenKey: device.tokenKey,
       trusted: device.trusted,
       pairedAt: device.pairedAt,
     })),
@@ -135,6 +150,7 @@ export const forgetDevice = (
     devices,
     tilesByDevice,
     customFlows: devices.length === 0 ? [] : (state.customFlows ?? []),
+    appearance: state.appearance === 'light' ? 'light' : 'dark',
     activeDeviceId:
       state.activeDeviceId === deviceId
         ? (devices[0]?.id ?? null)

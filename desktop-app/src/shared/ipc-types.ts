@@ -5,6 +5,8 @@ export const GRID_ROWS = 2;
 export const GRID_SLOTS = GRID_COLUMNS * GRID_ROWS;
 export const MAX_PAGES = 8;
 
+export type Appearance = 'light' | 'dark';
+
 export type PairingStep = 'qr' | 'otp' | 'confirm';
 
 export type PendingDevice = {
@@ -204,6 +206,7 @@ export type BridgeSnapshot = {
   lastPairedId: string | null;
   tiles: Array<DeckTile | null>;
   customFlows: CustomFlow[];
+  appearance: Appearance;
 };
 
 export type VerifyResult =
@@ -237,6 +240,7 @@ export interface ElectronAPI {
   browseFile: (
     filter?: 'executable' | 'image' | 'all',
   ) => Promise<BrowseFileResult | null>;
+  setAppearance: (mode: Appearance) => Promise<BridgeSnapshot>;
   onSnapshot: (callback: (snapshot: BridgeSnapshot) => void) => () => void;
 }
 

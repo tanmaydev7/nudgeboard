@@ -41,6 +41,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('bridge:delete-custom-flow', id) as Promise<BridgeSnapshot>,
   browseFile: (filter) =>
     ipcRenderer.invoke('bridge:browse-file', filter),
+  setAppearance: (mode) =>
+    ipcRenderer.invoke('bridge:set-appearance', mode) as Promise<BridgeSnapshot>,
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {
       callback(snapshot);

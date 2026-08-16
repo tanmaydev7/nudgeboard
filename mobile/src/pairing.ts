@@ -1,5 +1,10 @@
 import { NativeModules, Platform } from 'react-native';
 import {
+  decryptEnvelope,
+  deriveKeyHex,
+  encryptEnvelope,
+} from './crypto';
+import {
   resolveDeviceIdentity,
   type DeviceNameHints,
 } from './deviceIdentity';
@@ -7,6 +12,7 @@ import {
   isPrivateLanHost,
   parsePairingPayload,
   type ClientMessage,
+  type DecryptedReconnect,
   type DeckTileView,
   type DeviceHello,
   type HelloOk,
@@ -68,7 +74,7 @@ export function getDeviceInfo(): DeviceHello {
 export function connectBridge(
   host: string,
   port: number,
-  message: ClientMessage,
+  initialMessage: ClientMessage,
   handlers: {
     onConnected: (ok: HelloOk) => void;
     onDeck: (tiles: Array<DeckTileView | null>) => void;
@@ -76,6 +82,7 @@ export function connectBridge(
     onClose: () => void;
     onLoggedOut?: () => void;
   },
+  knownToken?: string,
 ): { close: () => void; send: (message: ClientMessage) => void } {
   if (!isPrivateLanHost(host)) {
     handlers.onError('That computer address is not on your local network.');
@@ -84,12 +91,60 @@ export function connectBridge(
       send: () => undefined,
     };
   }
+
+  let sessionKeyHex = knownToken ? deriveKeyHex(knownToken) : '';
+  let inSeq = 1;
+  let outSeq = 1;
+
   const ws = new WebSocket(`ws://${host}:${port}`);
   let opened = false;
 
+  const sendOutgoing = (outgoing: ClientMessage) => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (outgoing.type === 'reconnect' && sessionKeyHex) {
+      const payload: DecryptedReconnect = {
+        token: outgoing.token,
+        device: outgoing.device,
+        ts: Date.now(),
+      };
+      const enc = encryptEnvelope(sessionKeyHex, payload, 1);
+      if (enc) {
+        outSeq = 2;
+        ws.send(
+          JSON.stringify({
+            type: 'reconnect_enc',
+            id: outgoing.device.id,
+            iv: enc.iv,
+            data: enc.data,
+            tag: enc.tag,
+            seq: enc.seq,
+          }),
+        );
+        return;
+      }
+    }
+    if (
+      sessionKeyHex &&
+      outgoing.type !== 'hello' &&
+      outgoing.type !== 'hello_pin' &&
+      outgoing.type !== 'encrypted' &&
+      outgoing.type !== 'reconnect_enc'
+    ) {
+      const enc = encryptEnvelope(sessionKeyHex, outgoing, outSeq);
+      if (enc) {
+        outSeq += 1;
+        ws.send(JSON.stringify(enc));
+        return;
+      }
+    }
+    ws.send(JSON.stringify(outgoing));
+  };
+
   ws.onopen = () => {
     opened = true;
-    ws.send(JSON.stringify(message));
+    sendOutgoing(initialMessage);
   };
 
   ws.onmessage = (event) => {
@@ -101,6 +156,35 @@ export function connectBridge(
       return;
     }
 
+    if (payload.type === 'encrypted') {
+      if (!sessionKeyHex) {
+        return;
+      }
+      const decrypted = decryptEnvelope<ServerMessage>(
+        sessionKeyHex,
+        payload,
+        inSeq,
+      );
+      if (!decrypted) {
+        return;
+      }
+      inSeq += 1;
+      if (decrypted.type === 'deck') {
+        handlers.onDeck(decrypted.tiles);
+        return;
+      }
+      if (decrypted.type === 'logged_out') {
+        handlers.onLoggedOut?.();
+        ws.close();
+        return;
+      }
+      if (decrypted.type === 'hello_ok') {
+        handlers.onConnected(decrypted);
+        return;
+      }
+      return;
+    }
+
     if (payload.type === 'hello_err') {
       handlers.onError(payload.reason);
       ws.close();
@@ -108,6 +192,11 @@ export function connectBridge(
     }
 
     if (payload.type === 'hello_ok') {
+      if (payload.token) {
+        sessionKeyHex = deriveKeyHex(payload.token);
+        inSeq = 1;
+        outSeq = 1;
+      }
       handlers.onConnected(payload);
       return;
     }
@@ -138,9 +227,7 @@ export function connectBridge(
       ws.close();
     },
     send: (outgoing: ClientMessage) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(outgoing));
-      }
+      sendOutgoing(outgoing);
     },
   };
 }

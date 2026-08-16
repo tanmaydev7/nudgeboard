@@ -13,11 +13,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deckPageCount, pageTiles } from '../protocol';
 import { useAppStore } from '../store';
-import { colors, spacing } from '../theme';
+import { spacing, type Palette, useThemedStyles } from '../theme';
 import { DeckGrid } from './DeckGrid';
 import { ProfileDrawer, DRAWER_PEEK, type ProfileDrawerHandle } from './ProfileDrawer';
-
-const palette = colors.dark;
 
 type Props = {
   onDisconnect: () => void;
@@ -26,6 +24,7 @@ type Props = {
 };
 
 export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const connectedName = useAppStore((s) => s.connectedName);
   const profiles = useAppStore((s) => s.profiles);
   const activeFingerprint = useAppStore((s) => s.activeFingerprint);
@@ -170,90 +169,91 @@ export function DeckScreen({ onDisconnect, onLogout, onPressTile }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  shell: {
-    flex: 1,
-    minHeight: 0,
-    overflow: 'hidden',
-  },
-  content: {
-    flex: 1,
-    minHeight: 0,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: 0,
-    gap: spacing.sm,
-  },
-  landscape: {
-    paddingHorizontal: spacing.sm,
-    gap: 0,
-  },
-  statusHit: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    zIndex: 20,
-    padding: 8,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  statusOn: {
-    backgroundColor: palette.green,
-  },
-  statusOff: {
-    backgroundColor: '#f87171',
-  },
-  top: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: 28,
-  },
-  title: {
-    flex: 1,
-    color: palette.text,
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  hint: {
-    color: palette.muted,
-    fontSize: 13,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  carousel: {
-    flex: 1,
-    minHeight: 0,
-    gap: spacing.sm,
-  },
-  carouselLandscape: {
-    gap: 2,
-  },
-  pager: {
-    flex: 1,
-    minHeight: 0,
-  },
-  dots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  dotsLandscape: {
-    paddingBottom: 2,
-  },
-  dotHit: {
-    padding: 6,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#3a3f4a',
-  },
-  dotOn: {
-    backgroundColor: '#d4d4d8',
-  },
-});
+const makeStyles = (palette: Palette) =>
+  StyleSheet.create({
+    shell: {
+      flex: 1,
+      minHeight: 0,
+      overflow: 'hidden',
+    },
+    content: {
+      flex: 1,
+      minHeight: 0,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: 0,
+      gap: spacing.sm,
+    },
+    landscape: {
+      paddingHorizontal: spacing.sm,
+      gap: 0,
+    },
+    statusHit: {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      zIndex: 20,
+      padding: 8,
+    },
+    statusDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+    },
+    statusOn: {
+      backgroundColor: palette.green,
+    },
+    statusOff: {
+      backgroundColor: palette.danger,
+    },
+    top: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingRight: 28,
+    },
+    title: {
+      flex: 1,
+      color: palette.text,
+      fontSize: 22,
+      fontWeight: '800',
+    },
+    hint: {
+      color: palette.muted,
+      fontSize: 13,
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    carousel: {
+      flex: 1,
+      minHeight: 0,
+      gap: spacing.sm,
+    },
+    carouselLandscape: {
+      gap: 2,
+    },
+    pager: {
+      flex: 1,
+      minHeight: 0,
+    },
+    dots: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+    },
+    dotsLandscape: {
+      paddingBottom: 2,
+    },
+    dotHit: {
+      padding: 6,
+    },
+    dot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: palette.pageDot,
+    },
+    dotOn: {
+      backgroundColor: palette.pageDotOn,
+    },
+  });
