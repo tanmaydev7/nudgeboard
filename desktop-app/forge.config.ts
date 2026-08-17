@@ -27,6 +27,20 @@ const config: ForgeConfig = {
       NSAppleEventsUsageDescription:
         'Nudgeboard sends keyboard shortcuts as Mac key events when you press a tile on your phone.',
     },
+    // Apple Silicon signs arm64 during packaging even without osxSign, which
+    // adds CodeResources files x64 lacks and breaks @electron/universal merge.
+    // Ad-hoc-sign both slices so the trees match. No Developer ID required.
+    osxSign: {
+      identity: '-',
+      identityValidation: false,
+      preEmbedProvisioningProfile: false,
+      preAutoEntitlements: false,
+      strictVerify: false,
+      optionsForFile: () => ({
+        hardenedRuntime: false,
+        entitlements: false,
+      }),
+    },
   },
   hooks: {
     generateAssets: async (): Promise<void> => {
@@ -76,8 +90,7 @@ const config: ForgeConfig = {
     // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
-      // Fuse flips invalidate signatures. The plugin then ad-hoc-signs only
-      // arm64, which adds CodeResources files x64 lacks and breaks universal merge.
+      // Do not ad-hoc-sign only arm64 after fuse flips; osxSign covers both slices.
       resetAdHocDarwinSignature: false,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
