@@ -15,8 +15,10 @@ const App = () => {
   const isMac = window.api.platform === 'darwin';
 
   useEffect(() => {
-    document.documentElement.dataset.theme = appearance;
-    document.documentElement.style.colorScheme = appearance;
+    const root = document.documentElement;
+    root.style.colorScheme = '';
+    root.dataset.theme = appearance;
+    root.style.colorScheme = appearance;
   }, [appearance]);
 
   useEffect(() => {

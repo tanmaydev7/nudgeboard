@@ -1,7 +1,7 @@
 {
   "name": "desktop-app",
   "productName": "Nudgeboard",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Stream Deck-style companion for iPhone and Android",
   "main": ".webpack/main",
   "private": true,

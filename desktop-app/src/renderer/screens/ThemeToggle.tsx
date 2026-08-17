@@ -7,9 +7,17 @@ export function ThemeToggle() {
   const light = appearance === 'light';
 
   const toggle = () => {
-    void window.api
-      .setAppearance(light ? 'dark' : 'light')
-      .then(setSnapshot);
+    const next = light ? 'dark' : 'light';
+    const current = useAppStore.getState().snapshot;
+    if (current) {
+      setSnapshot({ ...current, appearance: next });
+    }
+    void window.api.setAppearance(next).then((snap) => {
+      if (useAppStore.getState().snapshot?.appearance !== next) {
+        return;
+      }
+      setSnapshot(snap);
+    });
   };
 
   return (
