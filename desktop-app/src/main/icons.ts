@@ -530,15 +530,18 @@ const SQUARE_ICON_32_BASE64 =
 
 export const createTrayNativeImage = (): NativeImage => {
   const candidatePaths = [
-    path.join(__dirname, '../../icons/png/nudgeboard-32.png'),
+    path.join(__dirname, '../../../icons/nudgeboard-icon-square.png'),
+    path.join(__dirname, '../../icons/nudgeboard-icon-square.png'),
+    path.join(process.cwd(), '../icons/nudgeboard-icon-square.png'),
     path.join(__dirname, '../../../icons/png/nudgeboard-32.png'),
+    path.join(__dirname, '../../icons/png/nudgeboard-32.png'),
     path.join(process.cwd(), 'icons/png/nudgeboard-32.png'),
   ];
   for (const p of candidatePaths) {
     if (fs.existsSync(p)) {
       const img = nativeImage.createFromPath(p);
       if (!img.isEmpty()) {
-        return img;
+        return img.resize({ width: 32, height: 32 });
       }
     }
   }
@@ -549,8 +552,11 @@ export const createTrayNativeImage = (): NativeImage => {
 
 export const createAppNativeImage = (): NativeImage => {
   const candidatePaths = [
-    path.join(__dirname, '../../icons/png/nudgeboard-256.png'),
+    path.join(__dirname, '../../../icons/nudgeboard-icon-square.png'),
+    path.join(__dirname, '../../icons/nudgeboard-icon-square.png'),
+    path.join(process.cwd(), '../icons/nudgeboard-icon-square.png'),
     path.join(__dirname, '../../../icons/png/nudgeboard-256.png'),
+    path.join(__dirname, '../../icons/png/nudgeboard-256.png'),
     path.join(__dirname, '../../icons/png/nudgeboard-512.png'),
     path.join(process.cwd(), 'icons/png/nudgeboard-256.png'),
   ];

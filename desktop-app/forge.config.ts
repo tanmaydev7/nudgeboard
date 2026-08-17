@@ -18,7 +18,7 @@ const macHelperBinary = path.resolve(__dirname, 'native/mac/nudgeboard-mac');
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    icon: path.resolve(__dirname, '../icons/png/nudgeboard-512'),
+    icon: path.resolve(__dirname, '../icons/nudgeboard-icon-square'),
     appBundleId: 'com.nudgeboard.desktop',
     appCategoryType: 'public.app-category.utilities',
     extraResource:
@@ -27,18 +27,20 @@ const config: ForgeConfig = {
       NSAppleEventsUsageDescription:
         'Nudgeboard sends keyboard shortcuts as Mac key events when you press a tile on your phone.',
     },
-    // Apple Silicon signs arm64 during packaging even without osxSign, which
-    // adds CodeResources files x64 lacks and breaks @electron/universal merge.
-    // Ad-hoc-sign both slices so the trees match. No Developer ID required.
+    // Ad-hoc-sign the merged universal app. Fuse flips invalidate Electron's
+    // original signature; without a real codesign, Apple Silicon kills launch at
+    // electron::fuses::IsRunAsNodeEnabled(). Apple will not timestamp ad-hoc
+    // signatures, and entitlements: false makes codesign fail. Packager defaults
+    // continueOnError to true, which would still ship a broken DMG.
     osxSign: {
       identity: '-',
       identityValidation: false,
       preEmbedProvisioningProfile: false,
       preAutoEntitlements: false,
       strictVerify: false,
+      continueOnError: false,
       optionsForFile: () => ({
-        hardenedRuntime: false,
-        entitlements: false,
+        timestamp: 'none',
       }),
     },
   },
