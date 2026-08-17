@@ -1,8 +1,10 @@
 import { NativeModules } from 'react-native';
 import {
-  APP_ID,
   DEFAULT_PORT,
+  isActivePairingPresence,
   lanCandidates,
+  matchesPairedPresence,
+  reconnectHosts,
 } from './protocol';
 
 const PROBE_MS = 280;
@@ -21,7 +23,10 @@ export function pairingHosts(): string[] {
   return lanCandidates(localLanHost());
 }
 
-const probe = async (host: string, port: number): Promise<boolean> => {
+const probeBody = async (
+  host: string,
+  port: number,
+): Promise<unknown | null> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_MS);
   try {
@@ -29,21 +34,21 @@ const probe = async (host: string, port: number): Promise<boolean> => {
       signal: controller.signal,
     });
     if (!response.ok) {
-      return false;
+      return null;
     }
-    const body = (await response.json()) as { app?: string };
-    return body.app === APP_ID;
+    return await response.json();
   } catch {
-    return false;
+    return null;
   } finally {
     clearTimeout(timer);
   }
 };
 
-export async function findPairingHost(
-  hosts = pairingHosts(),
-  port = DEFAULT_PORT,
-): Promise<{ host: string; port: number } | null> {
+const scanHosts = async (
+  hosts: string[],
+  port: number,
+  match: (body: unknown) => boolean,
+): Promise<{ host: string; port: number } | null> => {
   let cursor = 0;
   let found: { host: string; port: number } | null = null;
 
@@ -52,7 +57,11 @@ export async function findPairingHost(
       const index = cursor;
       cursor += 1;
       const host = hosts[index];
-      if (host && (await probe(host, port))) {
+      if (!host) {
+        continue;
+      }
+      const body = await probeBody(host, port);
+      if (body && match(body)) {
         found = { host, port };
         return;
       }
@@ -64,3 +73,22 @@ export async function findPairingHost(
   );
   return found;
 };
+
+export async function findPairingHost(
+  hosts = pairingHosts(),
+  port = DEFAULT_PORT,
+): Promise<{ host: string; port: number } | null> {
+  return scanHosts(hosts, port, isActivePairingPresence);
+}
+
+export async function findPairedHost(
+  fingerprint: string,
+  port = DEFAULT_PORT,
+  savedHost = '',
+): Promise<{ host: string; port: number } | null> {
+  return scanHosts(
+    reconnectHosts(savedHost, localLanHost()),
+    port,
+    (body) => matchesPairedPresence(body, fingerprint),
+  );
+}

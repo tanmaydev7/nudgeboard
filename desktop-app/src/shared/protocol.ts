@@ -236,6 +236,16 @@ export function isPrivateLanHost(host: string): boolean {
   return false;
 }
 
+export function nextLanBindHost(
+  available: string[],
+  current: string,
+): string | null {
+  if (available[0]) {
+    return available[0];
+  }
+  return current || null;
+}
+
 export function isPairingPin(value: string): boolean {
   return /^\d{6}$/.test(value);
 }

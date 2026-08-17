@@ -6,20 +6,24 @@ import {
   fallbackLanCandidates,
   formatCountdown,
   formatFingerprint,
+  isActivePairingPresence,
   isPairingPin,
   lanCandidates,
   GRID_SLOTS,
   MAX_PAGES,
+  matchesPairedPresence,
   normalizeDeck,
   padDeck,
   pageTiles,
   parsePairingPayload,
   PROTOCOL_VERSION,
   isPrivateLanHost,
+  reconnectHosts,
 } from '../src/protocol';
 import {
   makeDeviceId,
   makeOtp,
+  shouldAutoConnect,
   upsertDesktop,
   type DesktopProfile,
 } from '../src/store';
@@ -98,6 +102,57 @@ describe('pairing protocol', () => {
     expect(fallbackLanCandidates()).toContain('192.168.0.1');
     expect(fallbackLanCandidates()).toContain('10.0.0.254');
   });
+
+  it('reconnects by trying the saved office IP first, then the current Wi-Fi subnet', () => {
+    const hosts = reconnectHosts('10.20.0.5', '192.168.1.24');
+    expect(hosts[0]).toBe('10.20.0.5');
+    expect(hosts).toContain('192.168.1.10');
+    expect(hosts).not.toContain('192.168.1.24');
+    expect(hosts).toHaveLength(254);
+  });
+
+  it('treats a pairing probe without a pairing flag as an active pairing session', () => {
+    expect(
+      isActivePairingPresence({
+        app: APP_ID,
+        fingerprint: '7F:2A:D1',
+        name: 'DESKTOP-RAY',
+      }),
+    ).toBe(true);
+  });
+
+  it('ignores a desktop that is only advertising presence, not pairing', () => {
+    expect(
+      isActivePairingPresence({
+        app: APP_ID,
+        fingerprint: '7F:2A:D1',
+        pairing: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('matches a paired desktop by fingerprint even when it is not pairing', () => {
+    expect(
+      matchesPairedPresence(
+        {
+          app: APP_ID,
+          fingerprint: '7F:2A:D1',
+          pairing: false,
+        },
+        '7F:2A:D1',
+      ),
+    ).toBe(true);
+    expect(
+      matchesPairedPresence(
+        {
+          app: APP_ID,
+          fingerprint: 'AA:BB:CC',
+          pairing: false,
+        },
+        '7F:2A:D1',
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('desktop profiles', () => {
@@ -128,6 +183,30 @@ describe('desktop profiles', () => {
   it('updates an existing computer in place', () => {
     const updated = { ...ray, name: 'STUDIO-RAY', token: 'token-new' };
     expect(upsertDesktop([office, ray], updated)).toEqual([office, updated]);
+  });
+
+  it('auto-connects to the last computer if the user did not log out', () => {
+    expect(
+      shouldAutoConnect({
+        profiles: [office, ray],
+        activeFingerprint: ray.fingerprint,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not auto-connect after logout', () => {
+    expect(
+      shouldAutoConnect({
+        profiles: [],
+        activeFingerprint: ray.fingerprint,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoConnect({
+        profiles: [office],
+        activeFingerprint: null,
+      }),
+    ).toBe(false);
   });
 });
 

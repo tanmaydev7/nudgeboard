@@ -451,7 +451,7 @@ export const getMediaState = async (): Promise<MediaState | null> => {
           artwork,
           positionSec: nowPlaying.positionSec,
           durationSec: nowPlaying.durationSec,
-          updatedAt: Date.now(),
+          updatedAt: nowPlaying.updatedAt,
         };
         lastActiveSessionId = nowPlaying.sessionId;
         lastPolledAt = Date.now();

@@ -43,6 +43,7 @@ import {
   PROTOCOL_VERSION,
   QR_TTL_MS,
   makePairingPin,
+  nextLanBindHost,
   parseClientMessage,
   type ClientMessage,
   type DecryptedReconnect,
@@ -144,6 +145,8 @@ let lastMediaState: MediaState | null = null;
 let lastPositionBroadcastAt = 0;
 let lastVolumeState: VolumeState = { volume: 50, isMuted: false };
 let statusTimer: NodeJS.Timeout | null = null;
+let lanWatchTimer: NodeJS.Timeout | null = null;
+let rebinding = false;
 
 const desktopOs = (): string => {
   if (process.platform === 'darwin') {
@@ -1050,22 +1053,18 @@ const pairingProbe = (req: IncomingMessage, res: ServerResponse): void => {
     req.method === 'GET' &&
     (req.url === '/nudgeboard/pairing' || req.url === '/nudgeboard/pairing/')
   ) {
-    if (session && !sessionExpired()) {
-      res.writeHead(200, {
-        'content-type': 'application/json',
-        'access-control-allow-origin': '*',
-      });
-      res.end(
-        JSON.stringify({
-          app: APP_ID,
-          name: hostName,
-          fingerprint: persisted.fingerprint,
-        }),
-      );
-      return;
-    }
-    res.writeHead(204, { 'access-control-allow-origin': '*' });
-    res.end();
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'access-control-allow-origin': '*',
+    });
+    res.end(
+      JSON.stringify({
+        app: APP_ID,
+        name: hostName,
+        fingerprint: persisted.fingerprint,
+        pairing: Boolean(session && !sessionExpired()),
+      }),
+    );
     return;
   }
   res.writeHead(404);
@@ -1101,8 +1100,67 @@ const listen = async (startPort: number, bindHost: string): Promise<number> => {
   throw new Error('No free port for the Nudgeboard bridge');
 };
 
+const closeListen = (): Promise<void> =>
+  new Promise((resolve) => {
+    const server = wss;
+    const http = httpServer;
+    wss = null;
+    httpServer = null;
+    if (!server) {
+      resolve();
+      return;
+    }
+    server.close(() => {
+      if (!http) {
+        resolve();
+        return;
+      }
+      http.close(() => resolve());
+    });
+  });
+
+const attachConnectionHandler = (): void => {
+  wss?.on('connection', (socket, req) => {
+    const ip =
+      (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '') || 'unknown';
+    if (ipThrottled(ip) || !allowConnection(ip)) {
+      socket.close();
+      return;
+    }
+    socket.on('message', (data) => {
+      handleMessage(socket, data.toString());
+    });
+    socket.on('close', () => dropSocket(socket));
+    socket.on('error', () => dropSocket(socket));
+  });
+};
+
+const ensureLanBind = async (): Promise<void> => {
+  if (rebinding) {
+    return;
+  }
+  const next = nextLanBindHost(listLanHosts(), selectedHost);
+  if (!next || next === selectedHost) {
+    return;
+  }
+  rebinding = true;
+  try {
+    for (const { socket } of live.values()) {
+      socket.close();
+    }
+    live.clear();
+    await closeListen();
+    selectedHost = next;
+    port = await listen(DEFAULT_PORT, selectedHost);
+    attachConnectionHandler();
+    sendToRenderer();
+  } finally {
+    rebinding = false;
+  }
+};
+
 const startPairing = async (): Promise<BridgeSnapshot> => {
-  selectedHost = listLanHosts()[0] ?? selectedHost;
+  await ensureLanBind();
   clearSession('Pairing restarted');
   pairingFailures = 0;
   const token = randomBytes(TOKEN_BYTES).toString('hex');
@@ -1138,19 +1196,7 @@ export const startBridge = async (): Promise<void> => {
   applyAppearanceChrome();
   selectedHost = listLanHosts()[0] ?? '127.0.0.1';
   port = await listen(DEFAULT_PORT, selectedHost);
-
-  wss?.on('connection', (socket, req) => {
-    const ip = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '') || 'unknown';
-    if (ipThrottled(ip) || !allowConnection(ip)) {
-      socket.close();
-      return;
-    }
-    socket.on('message', (data) => {
-      handleMessage(socket, data.toString());
-    });
-    socket.on('close', () => dropSocket(socket));
-    socket.on('error', () => dropSocket(socket));
-  });
+  attachConnectionHandler();
 
   ipcMain.handle('bridge:get-snapshot', () => snapshot());
   ipcMain.handle('bridge:generate-qr', () => startPairing());
@@ -1655,12 +1701,23 @@ export const startBridge = async (): Promise<void> => {
     void pollStatus();
   }, 1500);
   void pollStatus();
+
+  if (lanWatchTimer) {
+    clearInterval(lanWatchTimer);
+  }
+  lanWatchTimer = setInterval(() => {
+    void ensureLanBind();
+  }, 5000);
 };
 
 export const stopBridge = (): Promise<void> => {
   if (statusTimer) {
     clearInterval(statusTimer);
     statusTimer = null;
+  }
+  if (lanWatchTimer) {
+    clearInterval(lanWatchTimer);
+    lanWatchTimer = null;
   }
   clearSession();
   closeIconRasterizer();

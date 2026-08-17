@@ -15,6 +15,7 @@ export type MacNowPlaying = {
   isPlaying: boolean;
   positionSec: number;
   durationSec: number;
+  updatedAt: number;
   artworkPath?: string;
   artworkUrl?: string;
 };
@@ -49,6 +50,21 @@ function str(v) {
 function num(v) {
   var n = Number(str(v));
   return isFinite(n) ? n : 0;
+}
+
+function dateMs(v) {
+  try {
+    var u = ObjC.unwrap(v);
+    if (u && typeof u.getTime === 'function') {
+      var t = u.getTime();
+      return isFinite(t) ? t : 0;
+    }
+  } catch (e) {}
+  try {
+    var t2 = Number(v.timeIntervalSince1970) * 1000;
+    return isFinite(t2) ? Math.round(t2) : 0;
+  } catch (e) {}
+  return 0;
 }
 
 function run() {
@@ -89,6 +105,7 @@ function run() {
       playbackRate: rate,
       duration: num(info.valueForKey('kMRMediaRemoteNowPlayingInfoDuration')),
       elapsed: num(info.valueForKey('kMRMediaRemoteNowPlayingInfoElapsedTime')),
+      timestampMs: dateMs(info.valueForKey('kMRMediaRemoteNowPlayingInfoTimestamp')),
       artworkUrl: str(info.valueForKey('kMRMediaRemoteNowPlayingInfoArtworkURL')),
       artworkPath: artPath
     });
@@ -126,6 +143,7 @@ type RawNowPlaying = {
   playbackRate?: number;
   duration?: number;
   elapsed?: number;
+  timestampMs?: number;
   artworkUrl?: string;
   artworkPath?: string;
 };
@@ -147,8 +165,10 @@ const runJxa = async (): Promise<RawNowPlaying | null> => {
   }
 };
 
-export const getMacNowPlaying = async (): Promise<MacNowPlaying | null> => {
-  const raw = await runJxa();
+export const toMacNowPlaying = (
+  raw: RawNowPlaying | null,
+  nowMs: number,
+): MacNowPlaying | null => {
   if (!raw || raw.player === 'none') {
     return null;
   }
@@ -157,6 +177,12 @@ export const getMacNowPlaying = async (): Promise<MacNowPlaying | null> => {
   if (!(raw.title || raw.artist || bundleId || appName)) {
     return null;
   }
+  const timestampMs =
+    typeof raw.timestampMs === 'number' &&
+    raw.timestampMs > 0 &&
+    raw.timestampMs <= nowMs + 5000
+      ? raw.timestampMs
+      : nowMs;
   return {
     title: raw.title || 'Unknown Track',
     artist: raw.artist || '',
@@ -166,9 +192,99 @@ export const getMacNowPlaying = async (): Promise<MacNowPlaying | null> => {
     isPlaying: (raw.playbackRate ?? 0) > 0.01,
     positionSec: raw.elapsed ?? 0,
     durationSec: raw.duration ?? 0,
+    updatedAt: timestampMs,
     artworkPath: raw.artworkPath || undefined,
     artworkUrl: raw.artworkUrl || undefined,
   };
+};
+
+export const getMacNowPlaying = async (): Promise<MacNowPlaying | null> => {
+  const raw = await runJxa();
+  const mapped = toMacNowPlaying(raw, Date.now());
+  if (!mapped) {
+    return null;
+  }
+  const live = await readNativeAppPlayback(mapped.sessionId);
+  return withLivePlayback(mapped, live, Date.now());
+};
+
+export type LivePlayback = {
+  positionSec: number;
+  durationSec: number;
+  isPlaying: boolean;
+};
+
+export const withLivePlayback = (
+  base: MacNowPlaying,
+  live: LivePlayback | null,
+  nowMs: number,
+): MacNowPlaying => {
+  if (!live) {
+    return base;
+  }
+  return {
+    ...base,
+    positionSec: live.positionSec,
+    durationSec: live.durationSec > 0 ? live.durationSec : base.durationSec,
+    isPlaying: live.isPlaying,
+    updatedAt: nowMs,
+  };
+};
+
+const NATIVE_PLAYBACK_SCRIPTS: Record<string, string> = {
+  'com.spotify.client': `
+tell application "Spotify"
+  if player state is stopped then return "none"
+  set stateName to player state as string
+  set pos to player position
+  set dur to (duration of current track) / 1000
+  return stateName & ":::" & pos & ":::" & dur
+end tell
+`,
+  'com.apple.Music': `
+tell application "Music"
+  if player state is stopped then return "none"
+  set stateName to player state as string
+  set pos to player position
+  set dur to duration of current track
+  return stateName & ":::" & pos & ":::" & dur
+end tell
+`,
+};
+
+export const parseLivePlayback = (raw: string): LivePlayback | null => {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === 'none') {
+    return null;
+  }
+  const [state, posStr, durStr] = trimmed.split(':::');
+  const positionSec = parseFloat(posStr);
+  const durationSec = parseFloat(durStr);
+  if (!isFinite(positionSec)) {
+    return null;
+  }
+  return {
+    positionSec,
+    durationSec: isFinite(durationSec) ? durationSec : 0,
+    isPlaying: state === 'playing',
+  };
+};
+
+const readNativeAppPlayback = async (
+  bundleId: string,
+): Promise<LivePlayback | null> => {
+  const script = NATIVE_PLAYBACK_SCRIPTS[bundleId];
+  if (!script) {
+    return null;
+  }
+  try {
+    const { stdout } = await execFileAsync('osascript', ['-e', script], {
+      timeout: 2000,
+    });
+    return parseLivePlayback(stdout);
+  } catch {
+    return null;
+  }
 };
 
 export const sendMacNowPlayingCommand = async (

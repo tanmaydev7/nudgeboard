@@ -117,7 +117,11 @@ export const ProfileDrawer = forwardRef<ProfileDrawerHandle, Props>(
                   style={[styles.dot, live ? styles.dotOn : styles.dotOff]}
                 />
                 <Text style={live ? styles.live : styles.offline}>
-                  {live ? 'Connected' : 'Not connected'}
+                  {live
+                    ? 'Connected'
+                    : status === 'connecting'
+                      ? 'Connecting…'
+                      : 'Not connected'}
                 </Text>
               </View>
             </View>
