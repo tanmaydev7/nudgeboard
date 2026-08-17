@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StatusBar, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { findPairingHost } from './lan';
+import { findPairedHost, findPairingHost } from './lan';
 import { connectBridge, getDeviceInfo } from './pairing';
 import {
   isPrivateLanHost,
@@ -14,7 +14,7 @@ import { ManualCodeScreen } from './screens/ManualCodeScreen';
 import { PairCodeScreen } from './screens/PairCodeScreen';
 import { ProfilesScreen } from './screens/ProfilesScreen';
 import { ScanScreen } from './screens/ScanScreen';
-import { useAppStore } from './store';
+import { shouldAutoConnect, useAppStore } from './store';
 import { colors, usePalette } from './theme';
 
 type Connection = ReturnType<typeof connectBridge>;
@@ -52,6 +52,40 @@ function useBridgeConnection() {
   const disconnect = () => {
     connectionRef.current?.close();
     connectionRef.current = null;
+  };
+
+  const stillPaired = () => {
+    const state = useAppStore.getState();
+    if (state.pairing || state.pin) {
+      return false;
+    }
+    return shouldAutoConnect(state);
+  };
+
+  const resumePairedSession = () => {
+    const state = useAppStore.getState();
+    if (!stillPaired()) {
+      markDisconnected();
+      return;
+    }
+    const fingerprint = state.activeFingerprint;
+    if (!fingerprint) {
+      markDisconnected();
+      return;
+    }
+    if (state.status !== 'idle') {
+      setStatus('idle');
+    }
+    queueMicrotask(() => {
+      const next = useAppStore.getState();
+      if (next.pairing || next.pin || next.status !== 'idle') {
+        return;
+      }
+      if (!shouldAutoConnect(next)) {
+        return;
+      }
+      next.selectProfile(fingerprint);
+    });
   };
 
   const logout = () => {
@@ -107,7 +141,7 @@ function useBridgeConnection() {
             finishPairing(ok.hostName, {
               fingerprint: ok.fingerprint,
               token: ok.token,
-              host: ok.host || host,
+              host,
               port: ok.port || port,
               os: ok.os,
             });
@@ -141,6 +175,10 @@ function useBridgeConnection() {
               }
               return;
             }
+            if (stillPaired()) {
+              resumePairedSession();
+              return;
+            }
             setError(reason);
             setStatus('idle');
           },
@@ -155,6 +193,10 @@ function useBridgeConnection() {
           },
           onClose: () => {
             if (connectionRef.current !== session) {
+              return;
+            }
+            if (stillPaired()) {
+              resumePairedSession();
               return;
             }
             if (useAppStore.getState().status === 'connected') {
@@ -200,16 +242,39 @@ function useBridgeConnection() {
         setStatus('idle');
         return;
       }
-      attach(
-        profile.host,
-        profile.port,
-        {
-          type: 'reconnect',
-          token: profile.token,
-          device,
-        },
-        profile.token,
-      );
+      void (async () => {
+        while (!cancelled) {
+          const current = useAppStore
+            .getState()
+            .profiles.find((item) => item.fingerprint === activeFingerprint);
+          if (!current) {
+            setStatus('idle');
+            return;
+          }
+          const found = await findPairedHost(
+            current.fingerprint,
+            current.port,
+            current.host,
+          );
+          if (cancelled) {
+            return;
+          }
+          if (found) {
+            attach(
+              found.host,
+              found.port,
+              {
+                type: 'reconnect',
+                token: current.token,
+                device,
+              },
+              current.token,
+            );
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      })();
     }
 
     return () => {

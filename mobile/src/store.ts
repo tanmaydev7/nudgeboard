@@ -154,6 +154,17 @@ export function upsertDesktop(
   return copy;
 }
 
+export function shouldAutoConnect(state: {
+  profiles: DesktopProfile[];
+  activeFingerprint: string | null;
+}): boolean {
+  const fingerprint = state.activeFingerprint;
+  if (!fingerprint) {
+    return false;
+  }
+  return state.profiles.some((item) => item.fingerprint === fingerprint);
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -351,8 +362,13 @@ export const useAppStore = create<AppState>()(
         if (!state) {
           return;
         }
-        state.screen = state.profiles.length > 0 ? 'profiles' : 'scan';
-        state.status = 'idle';
+        if (shouldAutoConnect(state)) {
+          state.screen = 'deck';
+          state.status = 'connecting';
+        } else {
+          state.screen = state.profiles.length > 0 ? 'profiles' : 'scan';
+          state.status = 'idle';
+        }
         state.connectedName = null;
         state.pairing = null;
         state.pin = null;

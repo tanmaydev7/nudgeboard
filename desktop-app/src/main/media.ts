@@ -1,7 +1,16 @@
 import { execFile } from 'child_process';
+import { unlink, writeFile, readFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { promisify } from 'util';
 import type { MediaState } from '../shared/ipc-types';
 import { executeUtility } from './executor';
+import {
+  clearMacNowPlayingArt,
+  getMacNowPlaying,
+  sendMacNowPlayingCommand,
+  type MacNowPlaying,
+} from './nowplaying-mac';
 
 const execFileAsync = promisify(execFile);
 
@@ -9,6 +18,122 @@ let cachedMediaState: MediaState | null = null;
 let lastPolledAt = 0;
 let isFetching = false;
 let lastActiveSessionId: string | null = null;
+let artworkCache: { key: string; dataUrl: string } | null = null;
+
+const ARTWORK_PX = 256;
+const ARTWORK_MAX_BYTES = 45_000;
+
+const uniqueTemp = (suffix: string): string =>
+  join(
+    tmpdir(),
+    `nudgeboard-art-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`,
+  );
+
+const jpegDataUrlFromFile = async (inputPath: string): Promise<string | undefined> => {
+  const out = uniqueTemp('.jpg');
+  try {
+    await execFileAsync(
+      'sips',
+      [
+        '-z',
+        String(ARTWORK_PX),
+        String(ARTWORK_PX),
+        '-s',
+        'format',
+        'jpeg',
+        '-s',
+        'formatOptions',
+        '70',
+        inputPath,
+        '--out',
+        out,
+      ],
+      { timeout: 5000 },
+    );
+    const buf = await readFile(out);
+    if (buf.length === 0 || buf.length > ARTWORK_MAX_BYTES) {
+      return undefined;
+    }
+    return `data:image/jpeg;base64,${buf.toString('base64')}`;
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      await unlink(out);
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const artworkFromUrl = async (raw: string): Promise<string | undefined> => {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === 'missing value') {
+    return undefined;
+  }
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+  const spotifyImage = /^spotify:image:(.+)$/i.exec(trimmed);
+  const url = spotifyImage
+    ? `https://i.scdn.co/image/${spotifyImage[1]}`
+    : trimmed;
+  if (!/^https?:\/\//i.test(url)) {
+    return undefined;
+  }
+  if (artworkCache?.key === url) {
+    return artworkCache.dataUrl;
+  }
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) {
+      return undefined;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0) {
+      return undefined;
+    }
+    const tmp = uniqueTemp('.img');
+    await writeFile(tmp, buf);
+    const dataUrl = await jpegDataUrlFromFile(tmp);
+    try {
+      await unlink(tmp);
+    } catch {
+      // ignore
+    }
+    if (dataUrl) {
+      artworkCache = { key: url, dataUrl };
+    }
+    return dataUrl;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveMacArtwork = async (
+  np: MacNowPlaying,
+): Promise<string | undefined> => {
+  const key = `${np.sessionId}|${np.title}|${np.artist}|${np.artworkPath || ''}|${np.artworkUrl || ''}`;
+  if (artworkCache?.key === key) {
+    return artworkCache.dataUrl;
+  }
+  if (np.artworkPath) {
+    const fromFile = await jpegDataUrlFromFile(np.artworkPath);
+    await clearMacNowPlayingArt();
+    if (fromFile) {
+      artworkCache = { key, dataUrl: fromFile };
+      return fromFile;
+    }
+  }
+  if (np.artworkUrl) {
+    const fromUrl = await artworkFromUrl(np.artworkUrl);
+    if (fromUrl) {
+      artworkCache = { key, dataUrl: fromUrl };
+      return fromUrl;
+    }
+  }
+  return undefined;
+};
 
 const buildWindowsMediaScript = (preferredAppId: string | null): string => `
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -116,23 +241,16 @@ try {
         }
     } catch {}
 
-    $appName = "Media"
-    if ($appId -match 'Spotify') { $appName = "Spotify" }
-    elseif ($appId -match 'AppleMusic|Apple') { $appName = "Apple Music" }
-    elseif ($appId -match 'Chrome') { $appName = "YouTube / Chrome" }
-    elseif ($appId -match 'msedge|Edge') { $appName = "YouTube / Edge" }
-    elseif ($appId -match 'Firefox') { $appName = "YouTube / Firefox" }
-    elseif ($appId -match 'Brave') { $appName = "YouTube / Brave" }
-    elseif ($appId -match 'Arc') { $appName = "YouTube / Arc" }
-    elseif ($appId -match 'Opera') { $appName = "YouTube / Opera" }
-    elseif ($appId -match 'vlc') { $appName = "VLC" }
-    elseif ($appId -match 'iTunes') { $appName = "iTunes" }
-    elseif ($appId -match 'TIDAL') { $appName = "TIDAL" }
-    elseif ($appId -match 'Deezer') { $appName = "Deezer" }
-    elseif ($appId -match 'AmazonMusic') { $appName = "Amazon Music" }
-    elseif ($appId) {
-        $parts = $appId.Split('!')
-        $appName = $parts[0].Replace('_', ' ')
+    $appName = "Now Playing"
+    if ($appId) {
+        $left = ($appId.Split('!'))[0]
+        if ($left -match '\\|/') {
+            $left = [System.IO.Path]::GetFileNameWithoutExtension($left)
+        }
+        $left = $left -replace '_[a-z0-9]{8,}$', ''
+        $leaf = ($left.Split('.') | Select-Object -Last 1)
+        if ($leaf) { $appName = $leaf }
+        elseif ($left) { $appName = $left.Replace('_', ' ') }
     }
 
     $title = $media.Title
@@ -316,71 +434,28 @@ export const getMediaState = async (): Promise<MediaState | null> => {
     }
 
     if (process.platform === 'darwin') {
-      // macOS: Try Spotify then Music app via AppleScript
-      try {
-        const { stdout } = await execFileAsync('osascript', [
-          '-e',
-          `
-          if application "Spotify" is running then
-            tell application "Spotify"
-              set t to name of current track
-              set a to artist of current track
-              set al to album of current track
-              set p to player state as string
-              set art to artwork url of current track
-              set pos to player position
-              set dur to (duration of current track) / 1000
-              return "Spotify|||" & t & "|||" & a & "|||" & al & "|||" & p & "|||" & art & "|||" & pos & "|||" & dur
-            end tell
-          else if application "Music" is running then
-            tell application "Music"
-              set t to name of current track
-              set a to artist of current track
-              set al to album of current track
-              set p to player state as string
-              set pos to player position
-              set dur to duration of current track
-              return "Apple Music|||" & t & "|||" & a & "|||" & al & "|||" & p & "||||||" & pos & "|||" & dur
-            end tell
-          else
-            return "null"
-          end if
-          `,
-        ]);
-        const res = stdout.trim();
-        if (res && res !== 'null' && res.includes('|||')) {
-          const [
-            sourceApp,
-            title,
-            artist,
-            album,
-            playerState,
-            artwork,
-            posStr,
-            durStr,
-          ] = res.split('|||');
-          cachedMediaState = {
-            sessionId: sourceApp,
-            title: title || 'Unknown Track',
-            artist: artist || '',
-            album: album || '',
-            sourceApp: sourceApp || 'Music',
-            isPlaying: playerState === 'playing',
-            canPlay: true,
-            canPause: true,
-            canNext: true,
-            canPrev: true,
-            artwork: artwork || undefined,
-            positionSec: posStr ? parseFloat(posStr) || 0 : 0,
-            durationSec: durStr ? parseFloat(durStr) || 0 : 0,
-            updatedAt: Date.now(),
-          };
-          lastActiveSessionId = sourceApp;
-          lastPolledAt = Date.now();
-          return cachedMediaState;
-        }
-      } catch {
-        // ignore
+      const nowPlaying = await getMacNowPlaying();
+      if (nowPlaying) {
+        const artwork = await resolveMacArtwork(nowPlaying);
+        cachedMediaState = {
+          sessionId: nowPlaying.sessionId,
+          title: nowPlaying.title,
+          artist: nowPlaying.artist,
+          album: nowPlaying.album,
+          sourceApp: nowPlaying.sourceApp,
+          isPlaying: nowPlaying.isPlaying,
+          canPlay: true,
+          canPause: true,
+          canNext: true,
+          canPrev: true,
+          artwork,
+          positionSec: nowPlaying.positionSec,
+          durationSec: nowPlaying.durationSec,
+          updatedAt: nowPlaying.updatedAt,
+        };
+        lastActiveSessionId = nowPlaying.sessionId;
+        lastPolledAt = Date.now();
+        return cachedMediaState;
       }
       cachedMediaState = null;
       lastPolledAt = Date.now();
@@ -448,11 +523,25 @@ export const executeMediaAction = async (
 ): Promise<void> => {
   const effectiveSessionId = targetSessionId || lastActiveSessionId;
 
+  if (process.platform === 'darwin') {
+    const command =
+      action === 'play_pause'
+        ? 'playpause'
+        : action === 'next'
+          ? 'next'
+          : action === 'prev'
+            ? 'previous'
+            : 'stop';
+    await sendMacNowPlayingCommand(command);
+    lastPolledAt = 0;
+    return;
+  }
+
   if (process.platform === 'win32') {
     try {
       const script = buildWindowsActionScript(action, effectiveSessionId);
       const encoded = Buffer.from(script, 'utf16le').toString('base64');
-      const { stdout } = await execFileAsync(
+      await execFileAsync(
         'powershell.exe',
         [
           '-NoProfile',
@@ -464,13 +553,11 @@ export const executeMediaAction = async (
         ],
         { timeout: 3000, windowsHide: true },
       );
-      if (stdout.trim() === 'ok') {
-        lastPolledAt = 0;
-        return;
-      }
     } catch {
-      // fallback to global utility
+      // ignore
     }
+    lastPolledAt = 0;
+    return;
   }
 
   // Fallback to global utility actions

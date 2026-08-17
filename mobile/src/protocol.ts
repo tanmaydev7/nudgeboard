@@ -469,6 +469,52 @@ export function lanCandidates(ip: string): string[] {
   return hosts;
 }
 
+export function reconnectHosts(savedHost: string, localIp: string): string[] {
+  const seen = new Set<string>();
+  const hosts: string[] = [];
+  const push = (host: string) => {
+    const ip = host.trim();
+    if (!ip || seen.has(ip) || !isPrivateLanHost(ip)) {
+      return;
+    }
+    seen.add(ip);
+    hosts.push(ip);
+  };
+  push(savedHost);
+  const subnet = lanCandidates(localIp);
+  for (const host of subnet) {
+    push(host);
+  }
+  if (subnet.length === 0) {
+    for (const host of fallbackLanCandidates()) {
+      push(host);
+    }
+  }
+  return hosts;
+}
+
+export function isActivePairingPresence(body: unknown): boolean {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+  const value = body as { app?: unknown; pairing?: unknown };
+  if (value.app !== APP_ID) {
+    return false;
+  }
+  return value.pairing !== false;
+}
+
+export function matchesPairedPresence(
+  body: unknown,
+  fingerprint: string,
+): boolean {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+  const value = body as { app?: unknown; fingerprint?: unknown };
+  return value.app === APP_ID && value.fingerprint === fingerprint;
+}
+
 export function fallbackLanCandidates(): string[] {
   return ['192.168.1', '192.168.0', '10.0.0'].flatMap((prefix) =>
     Array.from({ length: 254 }, (_, index) => `${prefix}.${index + 1}`),

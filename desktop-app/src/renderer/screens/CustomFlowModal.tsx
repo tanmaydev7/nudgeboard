@@ -23,6 +23,83 @@ type Props = {
   onClose: () => void;
 };
 
+const MODIFIER_KEYS = new Set([
+  'ctrl',
+  'control',
+  'shift',
+  'alt',
+  'option',
+  'win',
+  'meta',
+  'windows',
+  'cmd',
+  'command',
+  'super',
+]);
+
+const CODE_TO_KEY: Record<string, string> = {
+  ArrowRight: 'Right',
+  ArrowLeft: 'Left',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  Space: 'Space',
+  Tab: 'Tab',
+  Escape: 'Esc',
+  Enter: 'Enter',
+  Backspace: 'Backspace',
+  Delete: 'Del',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+};
+
+const keyFromEvent = (e: KeyboardEvent): string | null => {
+  if (CODE_TO_KEY[e.code]) {
+    return CODE_TO_KEY[e.code];
+  }
+  if (/^Key[A-Z]$/.test(e.code)) {
+    return e.code.slice(3);
+  }
+  if (/^Digit[0-9]$/.test(e.code)) {
+    return e.code.slice(5);
+  }
+  if (/^F([1-9]|1[0-2])$/.test(e.code)) {
+    return e.code;
+  }
+  const raw = e.key;
+  if (['Control', 'Shift', 'Alt', 'Meta', 'OS'].includes(raw)) {
+    return null;
+  }
+  if (raw === ' ') {
+    return 'Space';
+  }
+  if (raw === 'Escape') {
+    return 'Esc';
+  }
+  if (raw === 'Delete') {
+    return 'Del';
+  }
+  if (raw.startsWith('Arrow')) {
+    return raw.replace('Arrow', '');
+  }
+  if (raw.length === 1) {
+    return raw.toUpperCase();
+  }
+  return raw.length <= 16 ? raw : null;
+};
+
+const displayKey = (key: string, isMac: boolean): string => {
+  const lower = key.toLowerCase();
+  if (isMac && (lower === 'win' || lower === 'windows' || lower === 'meta')) {
+    return 'Cmd';
+  }
+  if (lower === 'cmd' || lower === 'command') {
+    return 'Cmd';
+  }
+  return key;
+};
+
 export function CustomFlowModal({
   isOpen,
   initialFlow,
@@ -38,6 +115,16 @@ export function CustomFlowModal({
   const [recordingIndex, setRecordingIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allowScripts, setAllowScripts] = useState(false);
+  const isMac = window.api.platform === 'darwin';
+  const modKey = isMac ? 'Cmd' : 'Win';
+
+  const updateStep = (index: number, updated: FlowStep) => {
+    setSteps((prev) => {
+      const next = [...prev];
+      next[index] = updated;
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -71,64 +158,71 @@ export function CustomFlowModal({
       return;
     }
 
+    let usingTap = false;
+    let unsubCapture: (() => void) | undefined;
+
+    const applyChord = (keys: string[], done: boolean) => {
+      updateStep(recordingIndex, {
+        type: 'shortcut',
+        keys,
+      });
+      if (done) {
+        setRecordingIndex(null);
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (usingTap) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
 
       const modifiers: string[] = [];
       if (e.ctrlKey) modifiers.push('Ctrl');
       if (e.shiftKey) modifiers.push('Shift');
-      if (e.altKey) modifiers.push('Alt');
-      if (e.metaKey) modifiers.push('Win');
+      if (e.altKey) modifiers.push(isMac ? 'Option' : 'Alt');
+      if (e.metaKey) modifiers.push(modKey);
 
-      const rawKey = e.key;
       const isOnlyModifier = ['Control', 'Shift', 'Alt', 'Meta', 'OS'].includes(
-        rawKey,
+        e.key,
       );
 
       if (isOnlyModifier) {
-        // Just modifiers pressed so far
-        updateStep(recordingIndex, {
-          type: 'shortcut',
-          keys: modifiers,
-          rawKey,
-        });
+        applyChord(modifiers, false);
         return;
       }
 
-      let mainKey = rawKey;
-      if (rawKey === ' ') mainKey = 'Space';
-      else if (rawKey === 'Escape') mainKey = 'Esc';
-      else if (rawKey === 'Delete') mainKey = 'Del';
-      else if (rawKey.startsWith('Arrow')) mainKey = rawKey.replace('Arrow', '');
-      else if (mainKey.length === 1) mainKey = mainKey.toUpperCase();
+      const mainKey = keyFromEvent(e);
+      if (!mainKey) {
+        return;
+      }
 
-      const combo = [...modifiers, mainKey];
-      updateStep(recordingIndex, {
-        type: 'shortcut',
-        keys: combo,
-        rawKey,
-      });
-      setRecordingIndex(null);
+      applyChord([...modifiers, mainKey], true);
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
+
+    if (isMac && window.api.startShortcutCapture && window.api.onShortcutCapture) {
+      unsubCapture = window.api.onShortcutCapture((chord) => {
+        usingTap = true;
+        applyChord(chord.keys, chord.done);
+      });
+      void window.api.startShortcutCapture().then((ok) => {
+        usingTap = ok;
+      });
+    }
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      unsubCapture?.();
+      void window.api.stopShortcutCapture?.();
     };
-  }, [recordingIndex]);
+  }, [recordingIndex, isMac, modKey]);
 
   if (!isOpen) {
     return null;
   }
-
-  const updateStep = (index: number, updated: FlowStep) => {
-    setSteps((prev) => {
-      const next = [...prev];
-      next[index] = updated;
-      return next;
-    });
-  };
 
   const removeStep = (index: number) => {
     if (steps.length <= 1) {
@@ -158,7 +252,10 @@ export function CustomFlowModal({
     if (type === 'launch') {
       setSteps((prev) => [...prev, { type: 'launch', path: '', args: '' }]);
     } else if (type === 'shortcut') {
-      setSteps((prev) => [...prev, { type: 'shortcut', keys: ['Ctrl', 'C'] }]);
+      setSteps((prev) => [
+        ...prev,
+        { type: 'shortcut', keys: isMac ? ['Cmd', 'C'] : ['Ctrl', 'C'] },
+      ]);
     } else if (type === 'delay') {
       setSteps((prev) => [...prev, { type: 'delay', ms: 500 }]);
     }
@@ -547,13 +644,23 @@ export function CustomFlowModal({
                             {recordingIndex === index ? (
                               <div className="recording-prompt">
                                 <span className="rec-dot" />
-                                <em>Recording… Press keys on your keyboard</em>
+                                {step.keys && step.keys.length > 0 ? (
+                                  <div className="key-badges">
+                                    {step.keys.map((k, kIdx) => (
+                                      <span key={kIdx} className="key-badge">
+                                        {displayKey(k, isMac)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <em>Recording… press a key, or click → below</em>
+                                )}
                               </div>
                             ) : step.keys && step.keys.length > 0 ? (
                               <div className="key-badges">
                                 {step.keys.map((k, kIdx) => (
                                   <span key={kIdx} className="key-badge">
-                                    {k}
+                                    {displayKey(k, isMac)}
                                   </span>
                                 ))}
                               </div>
@@ -581,77 +688,243 @@ export function CustomFlowModal({
                           </button>
                         </div>
 
+                        {isMac ? (
+                          <p className="shortcut-hint">
+                            Shortcuts are sent as real Mac keypresses. Ctrl+← /
+                            Ctrl+→ switch desktops. Option+← / Option+→ word-jump
+                            in text. Cmd+T and similar go to the frontmost app.
+                          </p>
+                        ) : null}
+
+                        <div className="quick-presets-row">
+                          <span className="preset-label">Add key:</span>
+                          {(
+                            [
+                              ['Left', '←'],
+                              ['Right', '→'],
+                              ['Up', '↑'],
+                              ['Down', '↓'],
+                              ['Tab', 'Tab'],
+                              ['Esc', 'Esc'],
+                              ['Enter', 'Enter'],
+                              ['Space', 'Space'],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              className="chip-preset"
+                              onClick={() => {
+                                const mods = (step.keys ?? []).filter((k) =>
+                                  MODIFIER_KEYS.has(k.toLowerCase()),
+                                );
+                                updateStep(index, {
+                                  ...step,
+                                  keys: [...mods, key],
+                                });
+                                setRecordingIndex(null);
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+
                         <div className="quick-presets-row">
                           <span className="preset-label">Presets:</span>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, {
-                                ...step,
-                                keys: ['Ctrl', 'C'],
-                              })
-                            }
-                          >
-                            Ctrl + C
-                          </button>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, {
-                                ...step,
-                                keys: ['Ctrl', 'V'],
-                              })
-                            }
-                          >
-                            Ctrl + V
-                          </button>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, {
-                                ...step,
-                                keys: ['Ctrl', 'Shift', 'Esc'],
-                              })
-                            }
-                          >
-                            Task Manager
-                          </button>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, {
-                                ...step,
-                                keys: ['Win', 'D'],
-                              })
-                            }
-                          >
-                            Show Desktop (Win+D)
-                          </button>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, {
-                                ...step,
-                                keys: ['Alt', 'Tab'],
-                              })
-                            }
-                          >
-                            Alt + Tab
-                          </button>
-                          <button
-                            type="button"
-                            className="chip-preset"
-                            onClick={() =>
-                              updateStep(index, { ...step, keys: ['F5'] })
-                            }
-                          >
-                            F5 (Refresh)
-                          </button>
+                          {isMac ? (
+                            <>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Cmd', 'C'],
+                                  })
+                                }
+                              >
+                                Cmd + C
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Cmd', 'V'],
+                                  })
+                                }
+                              >
+                                Cmd + V
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Cmd', 'T'],
+                                  })
+                                }
+                              >
+                                Cmd + T
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Cmd', 'Tab'],
+                                  })
+                                }
+                              >
+                                Cmd + Tab
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Cmd', 'Space'],
+                                  })
+                                }
+                              >
+                                Cmd + Space
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Ctrl', 'Right'],
+                                  })
+                                }
+                              >
+                                Switch Desktop →
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Ctrl', 'Left'],
+                                  })
+                                }
+                              >
+                                Switch Desktop ←
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Option', 'Right'],
+                                  })
+                                }
+                              >
+                                Option + →
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Option', 'Left'],
+                                  })
+                                }
+                              >
+                                Option + ←
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, { ...step, keys: ['F5'] })
+                                }
+                              >
+                                F5
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Ctrl', 'C'],
+                                  })
+                                }
+                              >
+                                Ctrl + C
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Ctrl', 'V'],
+                                  })
+                                }
+                              >
+                                Ctrl + V
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Ctrl', 'Shift', 'Esc'],
+                                  })
+                                }
+                              >
+                                Task Manager
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Win', 'D'],
+                                  })
+                                }
+                              >
+                                Show Desktop (Win+D)
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, {
+                                    ...step,
+                                    keys: ['Alt', 'Tab'],
+                                  })
+                                }
+                              >
+                                Alt + Tab
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-preset"
+                                onClick={() =>
+                                  updateStep(index, { ...step, keys: ['F5'] })
+                                }
+                              >
+                                F5 (Refresh)
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     ) : null}

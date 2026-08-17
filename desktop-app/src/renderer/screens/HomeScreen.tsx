@@ -19,6 +19,12 @@ import {
   LuSkipBack,
   LuSkipForward,
   LuGripVertical,
+  LuShieldAlert,
+  LuShieldCheck,
+  LuExternalLink,
+  LuCopy,
+  LuCheck,
+  LuSettings,
 } from 'react-icons/lu';
 import {
   UTILITY_ITEMS,
@@ -26,6 +32,7 @@ import {
   type CustomFlow,
   type DeckTile,
   type DesktopApp,
+  type MacPermissions,
   type UtilityItem,
   type WidgetItem,
 } from '../../shared/ipc-types';
@@ -630,18 +637,35 @@ export function HomeScreen() {
     gridRect: DOMRect;
   } | null>(null);
   const [page, setPage] = useState(0);
-  const [dialog, setDialog] = useState<'logout' | 'about' | 'help' | null>(null);
+  const [dialog, setDialog] = useState<
+    'logout' | 'about' | 'help' | 'mac-guide' | null
+  >(null);
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [editingFlow, setEditingFlow] = useState<CustomFlow | null>(null);
+  const [macPerms, setMacPerms] = useState<MacPermissions | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const isMac = window.api.platform === 'darwin';
   const activePage = Math.min(page, pages - 1);
+
+  const refreshMacPerms = () => {
+    if (isMac && window.api.getMacPermissions) {
+      void window.api.getMacPermissions().then(setMacPerms);
+    }
+  };
 
   useEffect(() => {
     void window.api.listApps().then(setApps);
     void window.api.getUtilityIcons().then(setUtilityIcons);
     void window.api.getPresetIcons().then(setPresetIcons);
   }, []);
+
+  useEffect(() => {
+    refreshMacPerms();
+    const handleFocus = () => refreshMacPerms();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [isMac]);
 
   useEffect(() => {
     setPage(0);
@@ -1079,6 +1103,20 @@ export function HomeScreen() {
         </div>
 
         <div className="sidebar-foot">
+          {isMac ? (
+            <button
+              type="button"
+              className={`sidebar-mac-btn${macPerms && !macPerms.accessibility ? ' warning' : ''}`}
+              onClick={() => setDialog('mac-guide')}
+            >
+              {macPerms && !macPerms.accessibility ? (
+                <LuShieldAlert size={15} />
+              ) : (
+                <LuShieldCheck size={15} />
+              )}
+              Mac Setup &amp; Permissions
+            </button>
+          ) : null}
           <button type="button" onClick={() => setDialog('about')}>
             <LuInfo size={15} />
             About NudgeBoard v1.0
@@ -1108,6 +1146,41 @@ export function HomeScreen() {
             <span className="live-pill dim">Offline</span>
           )}
         </header>
+
+        {isMac && macPerms && !macPerms.accessibility ? (
+          <div className="mac-perm-banner">
+            <div className="mac-perm-banner-text">
+              <LuShieldAlert size={18} className="mac-perm-banner-icon" />
+              <div>
+                <strong>macOS Accessibility Permission Needed</strong>
+                <p>
+                  {macPerms?.packaged
+                    ? 'Nudgeboard needs Accessibility on the installed app to send shortcuts from your phone. Permission given to Electron during npm start does not apply here.'
+                    : 'Nudgeboard needs Accessibility access to send keyboard shortcuts from your phone.'}
+                </p>
+              </div>
+            </div>
+            <div className="mac-perm-banner-actions">
+              <button
+                type="button"
+                className="btn-mac-perm-primary"
+                onClick={() => {
+                  void window.api.requestMacAccessibility?.();
+                  setDialog('mac-guide');
+                }}
+              >
+                Grant Permission
+              </button>
+              <button
+                type="button"
+                className="btn-mac-perm-secondary"
+                onClick={() => setDialog('mac-guide')}
+              >
+                Setup Guide
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="phone-stage">
           <div className="phone">
@@ -1211,6 +1284,9 @@ export function HomeScreen() {
                                 }
                                 onClick={() => {
                                   if (tile) {
+                                    if (!isWidget) {
+                                      void window.api.executeTile?.(tile);
+                                    }
                                     return;
                                   }
                                   const next =
@@ -2159,6 +2235,198 @@ export function HomeScreen() {
                 onClick={() => setDialog(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {dialog === 'mac-guide' ? (
+        <div className="modal-backdrop">
+          <div
+            className="modal mac-guide-modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mac-guide-head">
+              <div>
+                <h2>macOS Setup &amp; Permissions</h2>
+                <p>
+                  Configure the <strong>installed</strong> Nudgeboard app in
+                  /Applications. Permissions granted while using{' '}
+                  <code>npm start</code> apply to Electron, not this DMG build.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="mac-guide-close-btn"
+                onClick={() => setDialog(null)}
+              >
+                <LuX size={18} />
+              </button>
+            </div>
+
+            <div className="mac-guide-content">
+              {/* Card 1: Accessibility */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>1. Accessibility Permission</strong>
+                    <span
+                      className={`perm-badge ${
+                        macPerms?.accessibility ? 'granted' : 'needed'
+                      }`}
+                    >
+                      {macPerms?.accessibility ? (
+                        <>
+                          <LuShieldCheck size={13} /> Granted
+                        </>
+                      ) : (
+                        <>
+                          <LuShieldAlert size={13} /> Action Required
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <p>
+                    Required to send keyboard shortcuts (Switch Desktop,
+                    Cmd+T, and custom keys). Grant this to{' '}
+                    <strong>Electron</strong> while using <code>npm start</code>
+                    , or to <strong>Nudgeboard</strong> if you copied an
+                    unsigned build to /Applications. Automation / System Events
+                    is not used for this.
+                  </p>
+                  <p>
+                    You do not need a $99 Apple Developer account. Ad-hoc
+                    signing crashes this Electron build (code signature
+                    invalid), so keep the app unsigned and right-click Open /
+                    run <code>xattr -cr</code> if Gatekeeper blocks it.
+                  </p>
+                  <p>
+                    If the prompt never appears: Privacy &amp; Security →
+                    Accessibility → click <strong>+</strong> → choose
+                    Nudgeboard.app → turn the switch on. After installing a new
+                    DMG, remove the old Nudgeboard row and add the app again.
+                  </p>
+                </div>
+
+                <div className="mac-guide-card-actions">
+                  {!macPerms?.accessibility ? (
+                    <button
+                      type="button"
+                      className="btn-mac-action primary"
+                      onClick={() => {
+                        void window.api.requestMacAccessibility?.();
+                        refreshMacPerms();
+                      }}
+                    >
+                      <LuSettings size={14} />
+                      Request System Prompt
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn-mac-action secondary"
+                    onClick={() => {
+                      void window.api.openMacPrivacySettings?.('accessibility');
+                    }}
+                  >
+                    <LuExternalLink size={14} />
+                    Open Privacy &amp; Security
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-mac-action text"
+                    onClick={refreshMacPerms}
+                  >
+                    Refresh Status
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Gatekeeper / Unsigned Google Drive App */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>2. Opening DMG / App from Google Drive</strong>
+                    <span className="perm-badge tip">Personal Use Tip</span>
+                  </div>
+                  <p>
+                    Gatekeeper may warn because the app is unsigned. That is
+                    fine for your Mac. The $99 Apple program is only required
+                    to notarize and send the app to other people. Do not
+                    ad-hoc-sign this Electron build — it will not launch.
+                  </p>
+                </div>
+
+                <div className="mac-guide-steps">
+                  <div className="mac-step-item">
+                    <span className="step-num">A</span>
+                    <span>
+                      <strong>Finder method:</strong> Right-click (or Control-click){' '}
+                      <code>Nudgeboard.app</code> in <code>/Applications</code> &rarr;{' '}
+                      Click <strong>Open</strong> &rarr; Click <strong>Open</strong>.
+                    </span>
+                  </div>
+                  <div className="mac-step-item">
+                    <span className="step-num">B</span>
+                    <div className="step-terminal-wrap">
+                      <span>
+                        <strong>Terminal command:</strong> If blocked by quarantine:
+                      </span>
+                      <div className="code-block-row">
+                        <code>xattr -cr /Applications/Nudgeboard.app</code>
+                        <button
+                          type="button"
+                          className="btn-copy-code"
+                          title="Copy command"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(
+                              'xattr -cr /Applications/Nudgeboard.app',
+                            );
+                            setCopiedCmd(true);
+                            setTimeout(() => setCopiedCmd(false), 2000);
+                          }}
+                        >
+                          {copiedCmd ? (
+                            <>
+                              <LuCheck size={13} /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <LuCopy size={13} /> Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Network */}
+              <div className="mac-guide-card">
+                <div className="mac-guide-card-head">
+                  <div className="mac-guide-card-title-group">
+                    <strong>3. Local Network &amp; Wi-Fi</strong>
+                    <span className="perm-badge info">Connection</span>
+                  </div>
+                  <p>
+                    Keep your Mac and phone on the same Wi-Fi network. If macOS asks
+                    for <em>Local Network</em> permission when first running, click{' '}
+                    <strong>Allow</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions mac-guide-foot">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setDialog(null)}
+              >
+                Done
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import path from 'path';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
@@ -12,15 +13,44 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 
+const macHelperBinary = path.resolve(__dirname, 'native/mac/nudgeboard-mac');
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: path.resolve(__dirname, '../icons/png/nudgeboard-512'),
+    appBundleId: 'com.nudgeboard.desktop',
+    appCategoryType: 'public.app-category.utilities',
+    extraResource:
+      process.platform === 'darwin' ? [macHelperBinary] : [],
+    extendInfo: {
+      NSAppleEventsUsageDescription:
+        'Nudgeboard sends keyboard shortcuts as Mac key events when you press a tile on your phone.',
+    },
+  },
+  hooks: {
+    generateAssets: async (): Promise<void> => {
+      if (process.platform !== 'darwin') {
+        return;
+      }
+      const { execFileSync } = await import('child_process');
+      execFileSync('node', [path.resolve(__dirname, 'native/mac/build.js')], {
+        stdio: 'inherit',
+      });
+    },
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
+    new MakerDMG(
+      {
+        name: 'Nudgeboard',
+        format: 'ULFO',
+        overwrite: true,
+      },
+      ['darwin'],
+    ),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

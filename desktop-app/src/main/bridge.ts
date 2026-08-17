@@ -1,9 +1,19 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { execFile } from 'child_process';
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'http';
 import { hostname, networkInterfaces } from 'os';
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import { BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme } from 'electron';
+import { promisify } from 'util';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+  systemPreferences,
+} from 'electron';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
@@ -33,6 +43,7 @@ import {
   PROTOCOL_VERSION,
   QR_TTL_MS,
   makePairingPin,
+  nextLanBindHost,
   parseClientMessage,
   type ClientMessage,
   type DecryptedReconnect,
@@ -42,7 +53,7 @@ import {
 } from '../shared/protocol';
 import { listDesktopApps, iconsForPaths, iconDataUrl } from './apps';
 import { deriveKey, decryptEnvelope, encryptEnvelope } from './crypto';
-import { executeTile } from './executor';
+import { executeCustomFlow, executeTile } from './executor';
 import { getMediaState, executeMediaAction } from './media';
 import { getVolumeState, setMasterVolume, toggleMasterMute } from './volume';
 import {
@@ -62,6 +73,12 @@ import {
   type StoredDevice,
 } from './persist';
 import { sanitizeCustomFlow, sanitizeDeckTile } from './validate';
+import {
+  startMacShortcutCapture,
+  stopMacShortcutCapture,
+} from './shortcut-capture-mac';
+
+const execFileAsync = promisify(execFile);
 
 const TOKEN_BYTES = 16;
 const QR_SIZE = 280;
@@ -128,6 +145,8 @@ let lastMediaState: MediaState | null = null;
 let lastPositionBroadcastAt = 0;
 let lastVolumeState: VolumeState = { volume: 50, isMuted: false };
 let statusTimer: NodeJS.Timeout | null = null;
+let lanWatchTimer: NodeJS.Timeout | null = null;
+let rebinding = false;
 
 const desktopOs = (): string => {
   if (process.platform === 'darwin') {
@@ -1034,22 +1053,18 @@ const pairingProbe = (req: IncomingMessage, res: ServerResponse): void => {
     req.method === 'GET' &&
     (req.url === '/nudgeboard/pairing' || req.url === '/nudgeboard/pairing/')
   ) {
-    if (session && !sessionExpired()) {
-      res.writeHead(200, {
-        'content-type': 'application/json',
-        'access-control-allow-origin': '*',
-      });
-      res.end(
-        JSON.stringify({
-          app: APP_ID,
-          name: hostName,
-          fingerprint: persisted.fingerprint,
-        }),
-      );
-      return;
-    }
-    res.writeHead(204, { 'access-control-allow-origin': '*' });
-    res.end();
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'access-control-allow-origin': '*',
+    });
+    res.end(
+      JSON.stringify({
+        app: APP_ID,
+        name: hostName,
+        fingerprint: persisted.fingerprint,
+        pairing: Boolean(session && !sessionExpired()),
+      }),
+    );
     return;
   }
   res.writeHead(404);
@@ -1085,8 +1100,67 @@ const listen = async (startPort: number, bindHost: string): Promise<number> => {
   throw new Error('No free port for the Nudgeboard bridge');
 };
 
+const closeListen = (): Promise<void> =>
+  new Promise((resolve) => {
+    const server = wss;
+    const http = httpServer;
+    wss = null;
+    httpServer = null;
+    if (!server) {
+      resolve();
+      return;
+    }
+    server.close(() => {
+      if (!http) {
+        resolve();
+        return;
+      }
+      http.close(() => resolve());
+    });
+  });
+
+const attachConnectionHandler = (): void => {
+  wss?.on('connection', (socket, req) => {
+    const ip =
+      (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '') || 'unknown';
+    if (ipThrottled(ip) || !allowConnection(ip)) {
+      socket.close();
+      return;
+    }
+    socket.on('message', (data) => {
+      handleMessage(socket, data.toString());
+    });
+    socket.on('close', () => dropSocket(socket));
+    socket.on('error', () => dropSocket(socket));
+  });
+};
+
+const ensureLanBind = async (): Promise<void> => {
+  if (rebinding) {
+    return;
+  }
+  const next = nextLanBindHost(listLanHosts(), selectedHost);
+  if (!next || next === selectedHost) {
+    return;
+  }
+  rebinding = true;
+  try {
+    for (const { socket } of live.values()) {
+      socket.close();
+    }
+    live.clear();
+    await closeListen();
+    selectedHost = next;
+    port = await listen(DEFAULT_PORT, selectedHost);
+    attachConnectionHandler();
+    sendToRenderer();
+  } finally {
+    rebinding = false;
+  }
+};
+
 const startPairing = async (): Promise<BridgeSnapshot> => {
-  selectedHost = listLanHosts()[0] ?? selectedHost;
+  await ensureLanBind();
   clearSession('Pairing restarted');
   pairingFailures = 0;
   const token = randomBytes(TOKEN_BYTES).toString('hex');
@@ -1122,19 +1196,7 @@ export const startBridge = async (): Promise<void> => {
   applyAppearanceChrome();
   selectedHost = listLanHosts()[0] ?? '127.0.0.1';
   port = await listen(DEFAULT_PORT, selectedHost);
-
-  wss?.on('connection', (socket, req) => {
-    const ip = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '') || 'unknown';
-    if (ipThrottled(ip) || !allowConnection(ip)) {
-      socket.close();
-      return;
-    }
-    socket.on('message', (data) => {
-      handleMessage(socket, data.toString());
-    });
-    socket.on('close', () => dropSocket(socket));
-    socket.on('error', () => dropSocket(socket));
-  });
+  attachConnectionHandler();
 
   ipcMain.handle('bridge:get-snapshot', () => snapshot());
   ipcMain.handle('bridge:generate-qr', () => startPairing());
@@ -1304,13 +1366,7 @@ export const startBridge = async (): Promise<void> => {
             const svg = await readFile(filePath, 'utf8');
             iconDataUrlResult = renderSvgToPngDataUrl(svg);
           } else {
-            const native = nativeImage.createFromPath(filePath);
-            if (!native.isEmpty()) {
-              iconDataUrlResult = `data:image/png;base64,${native
-                .resize({ width: 256, height: 256, quality: 'best' })
-                .toPNG()
-                .toString('base64')}`;
-            }
+            iconDataUrlResult = (await iconDataUrl(filePath, 256)) ?? undefined;
           }
         } catch {
           iconDataUrlResult = undefined;
@@ -1545,6 +1601,27 @@ export const startBridge = async (): Promise<void> => {
       }
     },
   );
+  ipcMain.handle('bridge:execute-tile', async (_event, raw: unknown) => {
+    const candidate = raw as { widgetType?: string; tileType?: string; customFlow?: unknown };
+    if (!raw || typeof raw !== 'object') {
+      return;
+    }
+    if (candidate.widgetType || candidate.tileType === 'widget') {
+      return;
+    }
+    if (candidate.customFlow) {
+      const flow = sanitizeCustomFlow(candidate.customFlow);
+      if (flow) {
+        await executeCustomFlow(flow);
+        return;
+      }
+    }
+    const tile = sanitizeDeckTile(raw, persisted.customFlows);
+    if (!tile) {
+      return;
+    }
+    await executeTile(tile, persisted.customFlows);
+  });
   ipcMain.handle('bridge:set-appearance', (_event, mode: unknown) => {
     persisted.appearance = mode === 'light' ? 'light' : 'dark';
     save();
@@ -1552,6 +1629,70 @@ export const startBridge = async (): Promise<void> => {
     sendToRenderer();
     return snapshot();
   });
+  ipcMain.handle('bridge:get-mac-permissions', () => {
+    if (process.platform !== 'darwin') {
+      return { accessibility: true, packaged: true };
+    }
+    const accessibility = systemPreferences.isTrustedAccessibilityClient(false);
+    return { accessibility, packaged: app.isPackaged };
+  });
+  ipcMain.handle('bridge:start-shortcut-capture', async (event) => {
+    const sender = event.sender;
+    return startMacShortcutCapture((chord) => {
+      if (!sender.isDestroyed()) {
+        sender.send('bridge:shortcut-capture', chord);
+      }
+    });
+  });
+  ipcMain.handle('bridge:stop-shortcut-capture', () => {
+    stopMacShortcutCapture();
+  });
+  ipcMain.handle('bridge:request-mac-accessibility', () => {
+    if (process.platform !== 'darwin') {
+      return true;
+    }
+    return systemPreferences.isTrustedAccessibilityClient(true);
+  });
+  ipcMain.handle('bridge:request-mac-automation', async () => {
+    if (process.platform !== 'darwin') {
+      return true;
+    }
+    try {
+      await execFileAsync('/usr/bin/osascript', [
+        '-e',
+        'tell application "System Events" to get name',
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  ipcMain.handle(
+    'bridge:open-mac-privacy-settings',
+    async (_event, pane?: 'accessibility' | 'automation') => {
+      if (process.platform !== 'darwin') {
+        return;
+      }
+      const urls =
+        pane === 'automation'
+          ? [
+              'x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_Automation',
+              'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+            ]
+          : [
+              'x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_Accessibility',
+              'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+            ];
+      for (const url of urls) {
+        try {
+          await shell.openExternal(url);
+          return;
+        } catch {
+          // try the next URL scheme
+        }
+      }
+    },
+  );
 
   if (statusTimer) {
     clearInterval(statusTimer);
@@ -1560,12 +1701,23 @@ export const startBridge = async (): Promise<void> => {
     void pollStatus();
   }, 1500);
   void pollStatus();
+
+  if (lanWatchTimer) {
+    clearInterval(lanWatchTimer);
+  }
+  lanWatchTimer = setInterval(() => {
+    void ensureLanBind();
+  }, 5000);
 };
 
 export const stopBridge = (): Promise<void> => {
   if (statusTimer) {
     clearInterval(statusTimer);
     statusTimer = null;
+  }
+  if (lanWatchTimer) {
+    clearInterval(lanWatchTimer);
+    lanWatchTimer = null;
   }
   clearSession();
   closeIconRasterizer();

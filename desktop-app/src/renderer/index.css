@@ -3147,6 +3147,13 @@ html[data-theme='light'] .custom-flow-modal {
   margin-right: 2px;
 }
 
+.shortcut-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .chip-preset {
   border: 1px solid var(--line);
   background: var(--card);
@@ -3360,5 +3367,393 @@ html[data-theme='light'] .custom-flow-modal {
 .flow-modal-actions .btn-primary,
 .flow-modal-actions .btn-secondary {
   min-height: 40px;
+}
+
+/* ==========================================================================
+   macOS Permission Banner & Setup Guide Modal
+   ========================================================================== */
+
+.mac-perm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: rgba(232, 185, 49, 0.1);
+  border: 1px solid rgba(232, 185, 49, 0.35);
+  border-radius: 12px;
+  padding: 0.85rem 1.1rem;
+  margin: 0.25rem 0 1rem;
+  flex-shrink: 0;
+}
+
+.mac-perm-banner-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.mac-perm-banner-icon {
+  color: var(--warn);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.mac-perm-banner-text strong {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 650;
+  margin-bottom: 2px;
+}
+
+.mac-perm-banner-text p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.mac-perm-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-mac-perm-primary {
+  background: var(--purple);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-mac-perm-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-mac-perm-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-mac-perm-secondary:hover {
+  background: var(--surface-3);
+  border-color: var(--muted-2);
+}
+
+.sidebar-mac-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  margin-bottom: 0.35rem;
+}
+
+.sidebar-mac-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.sidebar-mac-btn.warning {
+  border-color: rgba(232, 185, 49, 0.4);
+  color: var(--warn);
+  background: rgba(232, 185, 49, 0.06);
+}
+
+.sidebar-mac-btn.warning:hover {
+  background: rgba(232, 185, 49, 0.12);
+}
+
+/* Mac Guide Modal */
+.modal.mac-guide-modal {
+  width: min(620px, 94vw);
+  max-height: 85vh;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.mac-guide-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.mac-guide-head h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mac-guide-head p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.mac-guide-close-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+}
+
+.mac-guide-close-btn:hover {
+  color: var(--text);
+}
+
+.mac-guide-content {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.mac-guide-card {
+  background: var(--well-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.mac-guide-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mac-guide-card-title-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.mac-guide-card-title-group strong {
+  font-size: 0.88rem;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.mac-guide-card-head p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.perm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.perm-badge.granted {
+  background: rgba(50, 215, 75, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(50, 215, 75, 0.3);
+}
+
+.perm-badge.needed {
+  background: rgba(232, 185, 49, 0.15);
+  color: var(--warn);
+  border: 1px solid rgba(232, 185, 49, 0.35);
+}
+
+.perm-badge.info {
+  background: rgba(124, 92, 255, 0.15);
+  color: var(--purple);
+  border: 1px solid rgba(124, 92, 255, 0.3);
+}
+
+.perm-badge.tip {
+  background: var(--chip);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.mac-guide-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+
+.btn-mac-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-mac-action.primary {
+  background: var(--purple);
+  color: #fff;
+  border: 0;
+}
+
+.btn-mac-action.primary:hover {
+  opacity: 0.9;
+}
+
+.btn-mac-action.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.btn-mac-action.secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--muted-2);
+}
+
+.btn-mac-action.text {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  padding: 0.45rem 0.6rem;
+}
+
+.btn-mac-action.text:hover {
+  color: var(--text);
+}
+
+.mac-guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.mac-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--chip);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.step-terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.code-block-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--screen);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+}
+
+.code-block-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--lime);
+  word-break: break-all;
+}
+
+.btn-copy-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.btn-copy-code:hover {
+  background: var(--surface-3);
+  color: #fff;
+}
+
+.mac-guide-foot {
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid var(--line);
+  background: var(--sidebar);
+  margin-top: 0;
 }
 

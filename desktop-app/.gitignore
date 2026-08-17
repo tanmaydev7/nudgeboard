@@ -90,3 +90,6 @@ typings/
 
 # Electron-Forge
 out/
+
+# Bundled macOS helper (compiled from native/mac/nudgeboard-mac.swift)
+native/mac/nudgeboard-mac
