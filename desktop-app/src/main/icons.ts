@@ -13,6 +13,8 @@ import {
   IoVolumeMute,
   IoLockClosed,
   IoCamera,
+  IoArrowBack,
+  IoArrowForward,
 } from 'react-icons/io5';
 import { HiPlayPause } from 'react-icons/hi2';
 import {
@@ -198,6 +200,22 @@ export const UTILITY_SVGS: Record<UtilityAction, string> = {
     '#0c4a6e',
     '#38bdf8',
     '#38bdf8',
+    48,
+  ),
+  switch_desktop_left: renderIconSvg(
+    IoArrowBack,
+    '#1e1035',
+    '#2e1065',
+    '#c084fc',
+    '#c084fc',
+    48,
+  ),
+  switch_desktop_right: renderIconSvg(
+    IoArrowForward,
+    '#1e1035',
+    '#2e1065',
+    '#c084fc',
+    '#c084fc',
     48,
   ),
 };
@@ -458,37 +476,15 @@ export const ensurePngDataUrl = async (
   }
 };
 
-export const renderSvgToPngDataUrl = (svg: string, size = 256): string => {
+export const renderSvgToPngDataUrl = (svg: string, _size = 256): string => {
   const cached = pngCache.get(svg);
   if (cached) {
     return cached;
   }
 
-  const candidates = [
-    `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-  ];
-
-  for (const svgDataUrl of candidates) {
-    try {
-      const image = nativeImage.createFromDataURL(svgDataUrl);
-      if (image.isEmpty()) {
-        continue;
-      }
-      const resized = image.resize({ width: size, height: size });
-      const pngBuffer = resized.toPNG();
-      if (pngBuffer.length === 0) {
-        continue;
-      }
-      const pngDataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
-      pngCache.set(svg, pngDataUrl);
-      return pngDataUrl;
-    } catch {
-      // Try the next encoding
-    }
-  }
-
-  // Chromium <img> can still paint SVG; React Native Image cannot.
+  // nativeImage does not decode SVG. createFromDataURL(svg) can CHECK-crash
+  // Chromium (EXC_BREAKPOINT / SIGTRAP). Desktop <img> can paint SVG; mobile
+  // PNG conversion goes through rasterizeSvgToPngDataUrl / ensurePngDataUrl.
   const fallbackUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   pngCache.set(svg, fallbackUrl);
   return fallbackUrl;

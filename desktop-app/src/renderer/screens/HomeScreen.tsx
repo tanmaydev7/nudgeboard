@@ -1154,7 +1154,9 @@ export function HomeScreen() {
               <div>
                 <strong>macOS Accessibility Permission Needed</strong>
                 <p>
-                  Nudgeboard needs Accessibility access to dispatch keyboard shortcuts and media keys from your phone.
+                  {macPerms?.packaged
+                    ? 'Nudgeboard needs Accessibility on the installed app to send shortcuts from your phone. Permission given to Electron during npm start does not apply here.'
+                    : 'Nudgeboard needs Accessibility access to send keyboard shortcuts from your phone.'}
                 </p>
               </div>
             </div>
@@ -1282,6 +1284,9 @@ export function HomeScreen() {
                                 }
                                 onClick={() => {
                                   if (tile) {
+                                    if (!isWidget) {
+                                      void window.api.executeTile?.(tile);
+                                    }
                                     return;
                                   }
                                   const next =
@@ -2247,8 +2252,9 @@ export function HomeScreen() {
               <div>
                 <h2>macOS Setup &amp; Permissions</h2>
                 <p>
-                  Configure your Mac so Nudgeboard can trigger keyboard shortcuts,
-                  control media players, and communicate with your phone.
+                  Configure the <strong>installed</strong> Nudgeboard app in
+                  /Applications. Permissions granted while using{' '}
+                  <code>npm start</code> apply to Electron, not this DMG build.
                 </p>
               </div>
               <button
@@ -2283,8 +2289,24 @@ export function HomeScreen() {
                     </span>
                   </div>
                   <p>
-                    Required for executing shortcuts (Cmd/Ctrl chords) and system
-                    actions via System Events.
+                    Required to send keyboard shortcuts (Switch Desktop,
+                    Cmd+T, and custom keys). Grant this to{' '}
+                    <strong>Electron</strong> while using <code>npm start</code>
+                    , or to <strong>Nudgeboard</strong> if you copied an
+                    unsigned build to /Applications. Automation / System Events
+                    is not used for this.
+                  </p>
+                  <p>
+                    You do not need a $99 Apple Developer account. Ad-hoc
+                    signing crashes this Electron build (code signature
+                    invalid), so keep the app unsigned and right-click Open /
+                    run <code>xattr -cr</code> if Gatekeeper blocks it.
+                  </p>
+                  <p>
+                    If the prompt never appears: Privacy &amp; Security →
+                    Accessibility → click <strong>+</strong> → choose
+                    Nudgeboard.app → turn the switch on. After installing a new
+                    DMG, remove the old Nudgeboard row and add the app again.
                   </p>
                 </div>
 
@@ -2322,44 +2344,18 @@ export function HomeScreen() {
                 </div>
               </div>
 
-              {/* Card 2: Automation / Media Control */}
+              {/* Card 2: Gatekeeper / Unsigned Google Drive App */}
               <div className="mac-guide-card">
                 <div className="mac-guide-card-head">
                   <div className="mac-guide-card-title-group">
-                    <strong>2. Automation &amp; Media Player Control</strong>
-                    <span className="perm-badge info">Automatic on First Use</span>
-                  </div>
-                  <p>
-                    When you tap media controls or the Now Playing widget, macOS
-                    will prompt: <em>&ldquo;Nudgeboard wants to control Spotify / Music&rdquo;</em>.
-                    Click <strong>Allow</strong>.
-                  </p>
-                </div>
-
-                <div className="mac-guide-card-actions">
-                  <button
-                    type="button"
-                    className="btn-mac-action secondary"
-                    onClick={() => {
-                      void window.api.openMacPrivacySettings?.('automation');
-                    }}
-                  >
-                    <LuExternalLink size={14} />
-                    Open Automation Settings
-                  </button>
-                </div>
-              </div>
-
-              {/* Card 3: Gatekeeper / Unsigned Google Drive App */}
-              <div className="mac-guide-card">
-                <div className="mac-guide-card-head">
-                  <div className="mac-guide-card-title-group">
-                    <strong>3. Opening DMG / App from Google Drive</strong>
+                    <strong>2. Opening DMG / App from Google Drive</strong>
                     <span className="perm-badge tip">Personal Use Tip</span>
                   </div>
                   <p>
-                    Since this is for personal use without Apple Developer certificate
-                    signing, macOS Gatekeeper may show a warning when first opening.
+                    Gatekeeper may warn because the app is unsigned. That is
+                    fine for your Mac. The $99 Apple program is only required
+                    to notarize and send the app to other people. Do not
+                    ad-hoc-sign this Electron build — it will not launch.
                   </p>
                 </div>
 
@@ -2412,7 +2408,7 @@ export function HomeScreen() {
               <div className="mac-guide-card">
                 <div className="mac-guide-card-head">
                   <div className="mac-guide-card-title-group">
-                    <strong>4. Local Network &amp; Wi-Fi</strong>
+                    <strong>3. Local Network &amp; Wi-Fi</strong>
                     <span className="perm-badge info">Connection</span>
                   </div>
                   <p>

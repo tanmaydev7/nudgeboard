@@ -8,6 +8,10 @@ import {
 } from 'electron';
 import { currentAppearance, startBridge, stopBridge, WINDOW_CHROME } from './bridge';
 import { createAppNativeImage, createTrayNativeImage } from './icons';
+import {
+  startMacKeyTargetTracking,
+  stopMacKeyTargetTracking,
+} from './keys-mac';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -262,6 +266,9 @@ if (!gotSingleInstanceLock) {
     createTray();
     await startBridge();
     createWindow();
+    if (isMac) {
+      startMacKeyTargetTracking();
+    }
 
     app.on('activate', () => {
       showMainWindow();
@@ -283,4 +290,5 @@ app.on('before-quit', () => {
     tray = null;
   }
   void stopBridge();
+  stopMacKeyTargetTracking();
 });

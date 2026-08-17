@@ -3147,6 +3147,13 @@ html[data-theme='light'] .custom-flow-modal {
   margin-right: 2px;
 }
 
+.shortcut-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .chip-preset {
   border: 1px solid var(--line);
   background: var(--card);

@@ -21,7 +21,7 @@ const config: ForgeConfig = {
     appCategoryType: 'public.app-category.utilities',
     extendInfo: {
       NSAppleEventsUsageDescription:
-        'Nudgeboard requires permission to control media players and dispatch keyboard shortcuts from your connected phone.',
+        'Nudgeboard sends keyboard shortcuts as Mac key events when you press a tile on your phone.',
     },
   },
   rebuildConfig: {},

@@ -1,13 +1,15 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { execFile } from 'child_process';
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'http';
 import { hostname, networkInterfaces } from 'os';
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
+import { promisify } from 'util';
 import {
+  app,
   BrowserWindow,
   dialog,
   ipcMain,
-  nativeImage,
   nativeTheme,
   shell,
   systemPreferences,
@@ -50,7 +52,7 @@ import {
 } from '../shared/protocol';
 import { listDesktopApps, iconsForPaths, iconDataUrl } from './apps';
 import { deriveKey, decryptEnvelope, encryptEnvelope } from './crypto';
-import { executeTile } from './executor';
+import { executeCustomFlow, executeTile } from './executor';
 import { getMediaState, executeMediaAction } from './media';
 import { getVolumeState, setMasterVolume, toggleMasterMute } from './volume';
 import {
@@ -70,6 +72,12 @@ import {
   type StoredDevice,
 } from './persist';
 import { sanitizeCustomFlow, sanitizeDeckTile } from './validate';
+import {
+  startMacShortcutCapture,
+  stopMacShortcutCapture,
+} from './shortcut-capture-mac';
+
+const execFileAsync = promisify(execFile);
 
 const TOKEN_BYTES = 16;
 const QR_SIZE = 280;
@@ -1312,13 +1320,7 @@ export const startBridge = async (): Promise<void> => {
             const svg = await readFile(filePath, 'utf8');
             iconDataUrlResult = renderSvgToPngDataUrl(svg);
           } else {
-            const native = nativeImage.createFromPath(filePath);
-            if (!native.isEmpty()) {
-              iconDataUrlResult = `data:image/png;base64,${native
-                .resize({ width: 256, height: 256, quality: 'best' })
-                .toPNG()
-                .toString('base64')}`;
-            }
+            iconDataUrlResult = (await iconDataUrl(filePath, 256)) ?? undefined;
           }
         } catch {
           iconDataUrlResult = undefined;
@@ -1553,6 +1555,27 @@ export const startBridge = async (): Promise<void> => {
       }
     },
   );
+  ipcMain.handle('bridge:execute-tile', async (_event, raw: unknown) => {
+    const candidate = raw as { widgetType?: string; tileType?: string; customFlow?: unknown };
+    if (!raw || typeof raw !== 'object') {
+      return;
+    }
+    if (candidate.widgetType || candidate.tileType === 'widget') {
+      return;
+    }
+    if (candidate.customFlow) {
+      const flow = sanitizeCustomFlow(candidate.customFlow);
+      if (flow) {
+        await executeCustomFlow(flow);
+        return;
+      }
+    }
+    const tile = sanitizeDeckTile(raw, persisted.customFlows);
+    if (!tile) {
+      return;
+    }
+    await executeTile(tile, persisted.customFlows);
+  });
   ipcMain.handle('bridge:set-appearance', (_event, mode: unknown) => {
     persisted.appearance = mode === 'light' ? 'light' : 'dark';
     save();
@@ -1562,10 +1585,21 @@ export const startBridge = async (): Promise<void> => {
   });
   ipcMain.handle('bridge:get-mac-permissions', () => {
     if (process.platform !== 'darwin') {
-      return { accessibility: true };
+      return { accessibility: true, packaged: true };
     }
     const accessibility = systemPreferences.isTrustedAccessibilityClient(false);
-    return { accessibility };
+    return { accessibility, packaged: app.isPackaged };
+  });
+  ipcMain.handle('bridge:start-shortcut-capture', async (event) => {
+    const sender = event.sender;
+    return startMacShortcutCapture((chord) => {
+      if (!sender.isDestroyed()) {
+        sender.send('bridge:shortcut-capture', chord);
+      }
+    });
+  });
+  ipcMain.handle('bridge:stop-shortcut-capture', () => {
+    stopMacShortcutCapture();
   });
   ipcMain.handle('bridge:request-mac-accessibility', () => {
     if (process.platform !== 'darwin') {
@@ -1573,20 +1607,43 @@ export const startBridge = async (): Promise<void> => {
     }
     return systemPreferences.isTrustedAccessibilityClient(true);
   });
+  ipcMain.handle('bridge:request-mac-automation', async () => {
+    if (process.platform !== 'darwin') {
+      return true;
+    }
+    try {
+      await execFileAsync('/usr/bin/osascript', [
+        '-e',
+        'tell application "System Events" to get name',
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   ipcMain.handle(
     'bridge:open-mac-privacy-settings',
-    (_event, pane?: 'accessibility' | 'automation') => {
+    async (_event, pane?: 'accessibility' | 'automation') => {
       if (process.platform !== 'darwin') {
         return;
       }
-      if (pane === 'automation') {
-        void shell.openExternal(
-          'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
-        );
-      } else {
-        void shell.openExternal(
-          'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
-        );
+      const urls =
+        pane === 'automation'
+          ? [
+              'x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_Automation',
+              'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+            ]
+          : [
+              'x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_Accessibility',
+              'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+            ];
+      for (const url of urls) {
+        try {
+          await shell.openExternal(url);
+          return;
+        } catch {
+          // try the next URL scheme
+        }
       }
     },
   );

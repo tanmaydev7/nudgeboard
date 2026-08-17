@@ -15,6 +15,8 @@ import {
   MAX_DELAY_MS,
   MIN_DELAY_MS,
 } from './validate';
+import { sendMacNowPlayingCommand } from './nowplaying-mac';
+import { sendMacKeyChord } from './keys-mac';
 
 const execFileAsync = promisify(execFile);
 
@@ -94,6 +96,16 @@ export const executeUtility = async (action: UtilityAction): Promise<void> => {
           stdio: 'ignore',
         }).unref();
         break;
+      case 'switch_desktop_left':
+      case 'switch_desktop_right':
+        await sendWindowsChord(
+          [
+            'Win',
+            'Ctrl',
+            action === 'switch_desktop_right' ? 'Right' : 'Left',
+          ],
+        );
+        break;
     }
     return;
   }
@@ -102,29 +114,20 @@ export const executeUtility = async (action: UtilityAction): Promise<void> => {
     try {
       switch (action) {
         case 'media_play_pause':
-          await execFileAsync('osascript', [
-            '-e',
-            'tell application "System Events" to key code 16',
-          ]);
-          break;
         case 'media_next':
-          await execFileAsync('osascript', [
-            '-e',
-            'tell application "System Events" to key code 17',
-          ]);
-          break;
         case 'media_prev':
-          await execFileAsync('osascript', [
-            '-e',
-            'tell application "System Events" to key code 18',
-          ]);
+        case 'media_stop': {
+          const command =
+            action === 'media_play_pause'
+              ? 'playpause'
+              : action === 'media_next'
+                ? 'next'
+                : action === 'media_prev'
+                  ? 'previous'
+                  : 'stop';
+          await sendMacNowPlayingCommand(command);
           break;
-        case 'media_stop':
-          await execFileAsync('osascript', [
-            '-e',
-            'tell application "System Events" to key code 16',
-          ]);
-          break;
+        }
         case 'volume_up':
           await execFileAsync('osascript', [
             '-e',
@@ -154,6 +157,12 @@ export const executeUtility = async (action: UtilityAction): Promise<void> => {
             detached: true,
             stdio: 'ignore',
           }).unref();
+          break;
+        case 'switch_desktop_left':
+          await sendMacKeyChord(123, 0x00040000);
+          break;
+        case 'switch_desktop_right':
+          await sendMacKeyChord(124, 0x00040000);
           break;
       }
     } catch {
@@ -218,6 +227,12 @@ export const executeUtility = async (action: UtilityAction): Promise<void> => {
           '-c',
           'gnome-screenshot -i || flameshot gui || spectacle || scrot -s',
         ]);
+        break;
+      case 'switch_desktop_left':
+        await execFileAsync('xdotool', ['key', 'ctrl+alt+Left']);
+        break;
+      case 'switch_desktop_right':
+        await execFileAsync('xdotool', ['key', 'ctrl+alt+Right']);
         break;
     }
   } catch {
@@ -534,6 +549,83 @@ type FlowExecContext = {
   allowScripts?: boolean;
 };
 
+const MAC_KEY_CODES: Record<string, number> = {
+  a: 0,
+  s: 1,
+  d: 2,
+  f: 3,
+  h: 4,
+  g: 5,
+  z: 6,
+  x: 7,
+  c: 8,
+  v: 9,
+  b: 11,
+  q: 12,
+  w: 13,
+  e: 14,
+  r: 15,
+  y: 16,
+  t: 17,
+  '1': 18,
+  '2': 19,
+  '3': 20,
+  '4': 21,
+  '6': 22,
+  '5': 23,
+  '9': 25,
+  '7': 26,
+  '8': 28,
+  '0': 29,
+  o: 31,
+  u: 32,
+  i: 34,
+  p: 35,
+  enter: 36,
+  return: 36,
+  l: 37,
+  j: 38,
+  k: 40,
+  n: 45,
+  m: 46,
+  tab: 48,
+  space: 49,
+  delete: 51,
+  del: 51,
+  backspace: 51,
+  esc: 53,
+  escape: 53,
+  f5: 96,
+  f6: 97,
+  f7: 98,
+  f3: 99,
+  f8: 100,
+  f9: 101,
+  f11: 103,
+  f10: 109,
+  f12: 111,
+  home: 115,
+  pageup: 116,
+  f4: 118,
+  end: 119,
+  f2: 120,
+  pagedown: 121,
+  f1: 122,
+  left: 123,
+  arrowleft: 123,
+  right: 124,
+  arrowright: 124,
+  down: 125,
+  arrowdown: 125,
+  up: 126,
+  arrowup: 126,
+};
+
+const MAC_FLAG_SHIFT = 0x00020000;
+const MAC_FLAG_CONTROL = 0x00040000;
+const MAC_FLAG_OPTION = 0x00080000;
+const MAC_FLAG_COMMAND = 0x00100000;
+
 export const executeShortcut = async (
   keys: string[],
   activateProcess?: string,
@@ -599,21 +691,28 @@ export const executeShortcut = async (
   }
 
   if (platform === 'darwin') {
-    const modifiers: string[] = [];
+    let flags = 0;
     const plain: string[] = [];
     for (const key of keys) {
       if (!isAllowedKeyName(key)) {
-        return;
+        continue;
       }
       const lower = key.toLowerCase();
-      if (lower === 'cmd' || lower === 'command' || lower === 'meta') {
-        modifiers.push('command down');
+      if (
+        lower === 'cmd' ||
+        lower === 'command' ||
+        lower === 'meta' ||
+        lower === 'win' ||
+        lower === 'windows' ||
+        lower === 'super'
+      ) {
+        flags |= MAC_FLAG_COMMAND;
       } else if (lower === 'ctrl' || lower === 'control') {
-        modifiers.push('control down');
+        flags |= MAC_FLAG_CONTROL;
       } else if (lower === 'shift') {
-        modifiers.push('shift down');
+        flags |= MAC_FLAG_SHIFT;
       } else if (lower === 'alt' || lower === 'option') {
-        modifiers.push('option down');
+        flags |= MAC_FLAG_OPTION;
       } else {
         plain.push(lower);
       }
@@ -622,20 +721,14 @@ export const executeShortcut = async (
     if (!targetKey) {
       return;
     }
-    const usingClause =
-      modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
+    const keyCode = MAC_KEY_CODES[targetKey];
+    if (keyCode === undefined) {
+      return;
+    }
     try {
-      await execFileAsync('osascript', [
-        '-e',
-        'on run argv',
-        '-e',
-        `tell application "System Events" to keystroke (item 1 of argv)${usingClause}`,
-        '-e',
-        'end run',
-        targetKey,
-      ]);
-    } catch {
-      // ignore
+      await sendMacKeyChord(keyCode, flags);
+    } catch (error) {
+      console.warn('[nudgeboard] shortcut send failed', error);
     }
     return;
   }

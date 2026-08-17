@@ -67,7 +67,9 @@ export type UtilityAction =
   | 'volume_down'
   | 'volume_mute'
   | 'lock_workstation'
-  | 'screenshot';
+  | 'screenshot'
+  | 'switch_desktop_left'
+  | 'switch_desktop_right';
 
 export type UtilityItem = {
   id: UtilityAction;
@@ -130,6 +132,18 @@ export const UTILITY_ITEMS: UtilityItem[] = [
     name: 'Screenshot',
     category: 'system',
     description: 'Trigger screen snip tool',
+  },
+  {
+    id: 'switch_desktop_left',
+    name: 'Switch Desktop ←',
+    category: 'system',
+    description: 'Move to the previous desktop space (Control + Left)',
+  },
+  {
+    id: 'switch_desktop_right',
+    name: 'Switch Desktop →',
+    category: 'system',
+    description: 'Move to the next desktop space (Control + Right)',
   },
 ];
 
@@ -279,6 +293,7 @@ export type BrowseFileResult = {
 
 export type MacPermissions = {
   accessibility: boolean;
+  packaged: boolean;
 };
 
 export interface ElectronAPI {
@@ -313,11 +328,18 @@ export interface ElectronAPI {
     action: WidgetActionType,
     value?: number,
   ) => Promise<void>;
+  executeTile?: (tile: DeckTile) => Promise<void>;
   getMacPermissions?: () => Promise<MacPermissions>;
   requestMacAccessibility?: () => Promise<boolean>;
+  requestMacAutomation?: () => Promise<boolean>;
   openMacPrivacySettings?: (
     pane?: 'accessibility' | 'automation',
   ) => Promise<void>;
+  startShortcutCapture?: () => Promise<boolean>;
+  stopShortcutCapture?: () => Promise<void>;
+  onShortcutCapture?: (
+    callback: (chord: { keys: string[]; done: boolean }) => void,
+  ) => () => void;
   onSnapshot: (callback: (snapshot: BridgeSnapshot) => void) => () => void;
   onMediaState?: (
     callback: (state: MediaState | null) => void,

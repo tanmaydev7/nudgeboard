@@ -51,12 +51,32 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('bridge:set-appearance', mode) as Promise<BridgeSnapshot>,
   triggerWidgetAction: (action, value) =>
     ipcRenderer.invoke('bridge:trigger-widget-action', action, value) as Promise<void>,
+  executeTile: (tile) =>
+    ipcRenderer.invoke('bridge:execute-tile', tile) as Promise<void>,
   getMacPermissions: () =>
     ipcRenderer.invoke('bridge:get-mac-permissions') as Promise<MacPermissions>,
   requestMacAccessibility: () =>
     ipcRenderer.invoke('bridge:request-mac-accessibility') as Promise<boolean>,
+  requestMacAutomation: () =>
+    ipcRenderer.invoke('bridge:request-mac-automation') as Promise<boolean>,
   openMacPrivacySettings: (pane) =>
     ipcRenderer.invoke('bridge:open-mac-privacy-settings', pane) as Promise<void>,
+  startShortcutCapture: () =>
+    ipcRenderer.invoke('bridge:start-shortcut-capture') as Promise<boolean>,
+  stopShortcutCapture: () =>
+    ipcRenderer.invoke('bridge:stop-shortcut-capture') as Promise<void>,
+  onShortcutCapture: (callback) => {
+    const listener = (
+      _event: unknown,
+      chord: { keys: string[]; done: boolean },
+    ) => {
+      callback(chord);
+    };
+    ipcRenderer.on('bridge:shortcut-capture', listener);
+    return () => {
+      ipcRenderer.removeListener('bridge:shortcut-capture', listener);
+    };
+  },
   onSnapshot: (callback) => {
     const listener = (_event: unknown, snapshot: BridgeSnapshot) => {
       callback(snapshot);

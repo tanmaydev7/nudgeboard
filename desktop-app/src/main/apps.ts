@@ -1,9 +1,9 @@
 import { execFile, spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { basename, dirname, extname, isAbsolute, join } from 'path';
 import { promisify } from 'util';
-import { readdir, readFile } from 'fs/promises';
+import { readdir, readFile, unlink } from 'fs/promises';
 import { app, nativeImage, shell, type NativeImage } from 'electron';
 import type { DesktopApp } from '../shared/ipc-types';
 
@@ -508,6 +508,100 @@ const yieldMain = (): Promise<void> =>
 const cacheKey = (filePath: string, size: number): string =>
   `${size}:${filePath}`;
 
+const sipsPngDataUrl = async (
+  inputPath: string,
+  size: number,
+): Promise<string | null> => {
+  const out = join(
+    tmpdir(),
+    `nudgeboard-icon-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
+  );
+  try {
+    await execFileAsync(
+      'sips',
+      ['-z', String(size), String(size), '-s', 'format', 'png', inputPath, '--out', out],
+      { timeout: 8000, maxBuffer: 1024 * 1024 },
+    );
+    const buf = await readFile(out);
+    if (buf.length === 0) {
+      return null;
+    }
+    return `data:image/png;base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  } finally {
+    try {
+      await unlink(out);
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const resolveMacIconFile = async (source: string): Promise<string | null> => {
+  const ext = extname(source).toLowerCase();
+  if (IMAGE_EXTS.has(ext)) {
+    return source;
+  }
+  if (ext !== '.app') {
+    return null;
+  }
+
+  const resources = join(source, 'Contents', 'Resources');
+  const infoPlist = join(source, 'Contents', 'Info.plist');
+  let iconName = '';
+  try {
+    const { stdout } = await execFileAsync(
+      'plutil',
+      ['-convert', 'json', '-o', '-', infoPlist],
+      { timeout: 4000, maxBuffer: 4 * 1024 * 1024 },
+    );
+    const info = JSON.parse(stdout) as {
+      CFBundleIconFile?: string;
+      CFBundleIconName?: string;
+    };
+    iconName = (info.CFBundleIconFile || info.CFBundleIconName || '').trim();
+  } catch {
+    iconName = '';
+  }
+
+  const candidates: string[] = [];
+  if (iconName) {
+    candidates.push(join(resources, iconName));
+    if (!iconName.toLowerCase().endsWith('.icns')) {
+      candidates.push(join(resources, `${iconName}.icns`));
+    }
+  }
+  candidates.push(
+    join(resources, 'AppIcon.icns'),
+    join(resources, 'icon.icns'),
+    join(resources, 'app.icns'),
+  );
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  try {
+    const names = await readdir(resources);
+    const icns = names.find((name) => name.toLowerCase().endsWith('.icns'));
+    return icns ? join(resources, icns) : null;
+  } catch {
+    return null;
+  }
+};
+
+const macIconDataUrl = async (
+  source: string,
+  size: number,
+): Promise<string | null> => {
+  const iconFile = await resolveMacIconFile(source);
+  if (!iconFile) {
+    return null;
+  }
+  return sipsPngDataUrl(iconFile, size);
+};
+
 export const iconDataUrl = async (
   filePath: string,
   size = 32,
@@ -518,42 +612,47 @@ export const iconDataUrl = async (
   }
 
   const source = resolveIconSource(filePath);
-  if (isNonFileLaunchPath(source)) {
+  if (isNonFileLaunchPath(source) || !existsSync(source)) {
     iconCache.set(key, null);
     return null;
   }
   let url: string | null = null;
 
-  if (
-    size > 32 &&
-    (process.platform === 'win32' || process.platform === 'darwin')
-  ) {
-    try {
-      const thumb = await nativeImage.createThumbnailFromPath(source, {
-        width: size,
-        height: size,
-      });
-      url = toDataUrl(thumb, size);
-    } catch {
-      url = null;
+  // Electron nativeImage / getFileIcon / createThumbnailFromPath all go through
+  // NSImage on macOS and have aborted Chromium (EXC_BREAKPOINT) on macOS 26.
+  // Convert icons in a child process (sips) and only read PNG bytes.
+  if (process.platform === 'darwin') {
+    url = await macIconDataUrl(source, size);
+  } else {
+    if (IMAGE_EXTS.has(extname(source).toLowerCase())) {
+      try {
+        url = toDataUrl(nativeImage.createFromPath(source), size);
+      } catch {
+        url = null;
+      }
     }
-  }
 
-  if (!url && IMAGE_EXTS.has(extname(source).toLowerCase())) {
-    try {
-      url = toDataUrl(nativeImage.createFromPath(source), size);
-    } catch {
-      url = null;
+    if (!url && size > 32 && process.platform === 'win32') {
+      try {
+        const thumb = await nativeImage.createThumbnailFromPath(source, {
+          width: size,
+          height: size,
+        });
+        url = toDataUrl(thumb, size);
+      } catch {
+        url = null;
+      }
     }
-  }
-  if (!url) {
-    try {
-      url = toDataUrl(
-        await app.getFileIcon(source, { size: size > 32 ? 'large' : 'normal' }),
-        size,
-      );
-    } catch {
-      url = null;
+
+    if (!url) {
+      try {
+        url = toDataUrl(
+          await app.getFileIcon(source, { size: size > 32 ? 'large' : 'normal' }),
+          size,
+        );
+      } catch {
+        url = null;
+      }
     }
   }
   iconCache.set(key, url);
