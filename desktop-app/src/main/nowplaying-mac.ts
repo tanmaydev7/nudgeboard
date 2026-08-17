@@ -117,21 +117,8 @@ function run() {
 
 /**
  * osascript can read Now Playing on macOS 15.4+/26, but SendCommand is a no-op.
- * /usr/bin/ruby is Apple-signed and still allowed to talk to mediaremoted.
+ * The bundled native helper can still send MediaRemote commands.
  */
-const RUBY_SEND = `
-require "fiddle"
-require "fiddle/import"
-module MR
-  extend Fiddle::Importer
-  dlload "/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote"
-  extern "int MRMediaRemoteSendCommand(unsigned int, void *)"
-end
-code = Integer(ARGV[0])
-ok = MR.MRMediaRemoteSendCommand(code, nil)
-sleep 0.4
-exit(ok == 0 ? 1 : 0)
-`;
 
 type RawNowPlaying = {
   player?: string;
@@ -291,9 +278,10 @@ export const sendMacNowPlayingCommand = async (
   action: MacNowPlayingCommand,
 ): Promise<boolean> => {
   try {
+    const { macHelperPath } = await import('./mac-helper');
     await execFileAsync(
-      '/usr/bin/ruby',
-      ['-e', RUBY_SEND, String(COMMAND_IDS[action])],
+      macHelperPath(),
+      ['nowplaying-send', String(COMMAND_IDS[action])],
       { timeout: 3000 },
     );
     return true;

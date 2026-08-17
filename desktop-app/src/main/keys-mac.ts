@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { app, BrowserWindow } from 'electron';
+import { macHelperPath } from './mac-helper';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,65 +11,13 @@ const SKIP_BUNDLES = new Set([
   'electron',
 ]);
 
-const MAC_FLAG_SHIFT = 0x00020000;
 const MAC_FLAG_CONTROL = 0x00040000;
-const MAC_FLAG_OPTION = 0x00080000;
 const MAC_FLAG_COMMAND = 0x00100000;
 const MAC_FLAG_FN = 0x00800000;
-
-const VK_SHIFT = 56;
-const VK_CONTROL = 59;
-const VK_OPTION = 58;
-const VK_COMMAND = 55;
 
 let lastTargetPid = 0;
 let tracker: ReturnType<typeof setInterval> | null = null;
 let sendQueue: Promise<void> = Promise.resolve();
-
-/**
- * PhoneDeck-style HID post. Control is pressed as a real key, then the arrow,
- * with a short hold — instant down/up is what Mission Control drops.
- * Source is private so leftover physical modifiers don't randomly taint the chord.
- */
-const RUBY_POST = `
-require "fiddle"
-require "fiddle/import"
-module CG
-  extend Fiddle::Importer
-  dlload "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
-  extern "void* CGEventSourceCreate(int)"
-  extern "void* CGEventCreateKeyboardEvent(void*, unsigned short, char)"
-  extern "void CGEventSetFlags(void*, unsigned long long)"
-  extern "void CGEventPost(unsigned int, void*)"
-  extern "void CFRelease(void*)"
-end
-
-def post(src, vk, flags, down)
-  ev = CG.CGEventCreateKeyboardEvent(src, vk, down ? 1 : 0)
-  CG.CGEventSetFlags(ev, flags)
-  CG.CGEventPost(0, ev)
-  CG.CFRelease(ev)
-end
-
-code = Integer(ARGV[0])
-flags = Integer(ARGV[1])
-src = CG.CGEventSourceCreate(-1)
-src = CG.CGEventSourceCreate(1) if src.respond_to?(:null?) && src.null?
-
-mods = []
-mods << ${VK_SHIFT} if flags & 0x20000 != 0
-mods << ${VK_CONTROL} if flags & 0x40000 != 0
-mods << ${VK_OPTION} if flags & 0x80000 != 0
-mods << ${VK_COMMAND} if flags & 0x100000 != 0
-
-mods.each { |vk| post(src, vk, flags, true) }
-sleep 0.02
-post(src, code, flags, true)
-sleep 0.04
-post(src, code, flags, false)
-sleep 0.02
-mods.reverse.each { |vk| post(src, vk, 0, false) }
-`;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -162,8 +111,8 @@ const hideBeforeFiring = async (): Promise<void> => {
 const postHid = async (keyCode: number, flags: number): Promise<void> => {
   try {
     await execFileAsync(
-      '/usr/bin/ruby',
-      ['-e', RUBY_POST, String(keyCode), String(flags)],
+      macHelperPath(),
+      ['key-post', String(keyCode), String(flags)],
       { timeout: 4000 },
     );
   } catch (error) {
@@ -171,7 +120,7 @@ const postHid = async (keyCode: number, flags: number): Promise<void> => {
     const stderr = Buffer.isBuffer(detail.stderr)
       ? detail.stderr.toString('utf8')
       : detail.stderr;
-    console.warn('[nudgeboard] shortcut ruby', stderr?.trim() || detail.message);
+    console.warn('[nudgeboard] shortcut helper', stderr?.trim() || detail.message);
     throw error;
   }
 };
