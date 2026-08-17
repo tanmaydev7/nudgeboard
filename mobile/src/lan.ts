@@ -2,12 +2,11 @@ import { NativeModules } from 'react-native';
 import {
   APP_ID,
   DEFAULT_PORT,
-  fallbackLanCandidates,
   lanCandidates,
 } from './protocol';
 
 const PROBE_MS = 280;
-const WORKERS = 32;
+const WORKERS = 8;
 
 type NudgeDeviceModule = {
   getLanHost?: () => string;
@@ -19,9 +18,7 @@ export function localLanHost(): string {
 }
 
 export function pairingHosts(): string[] {
-  const ip = localLanHost();
-  const hosts = lanCandidates(ip);
-  return hosts.length > 0 ? hosts : fallbackLanCandidates();
+  return lanCandidates(localLanHost());
 }
 
 const probe = async (host: string, port: number): Promise<boolean> => {

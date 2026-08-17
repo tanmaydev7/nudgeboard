@@ -1,9 +1,11 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
-import { type DeckTile } from '../shared/ipc-types';
+import { type CustomFlow, type DeckTile } from '../shared/ipc-types';
 import { formatFingerprint, type DevicePlatform } from '../shared/protocol';
+import { deriveKeyHex } from './crypto';
+import { sanitizeCustomFlow } from './validate';
 
 export type StoredDevice = {
   id: string;
@@ -12,7 +14,8 @@ export type StoredDevice = {
   os: string;
   platform: DevicePlatform;
   fingerprint: string;
-  token: string;
+  tokenHash: string;
+  tokenKey?: string;
   trusted: boolean;
   pairedAt: number;
 };
@@ -22,32 +25,90 @@ export type PersistedState = {
   devices: StoredDevice[];
   activeDeviceId: string | null;
   tilesByDevice: Record<string, Array<DeckTile | null>>;
+  customFlows: CustomFlow[];
+  appearance: 'light' | 'dark';
 };
+
+type LegacyDevice = StoredDevice & { token?: string };
+
+export const hashToken = (token: string): string =>
+  createHash('sha256').update(token, 'utf8').digest('hex');
 
 export const emptyState = (): PersistedState => ({
   fingerprint: formatFingerprint(randomBytes(3)),
   devices: [],
   activeDeviceId: null,
   tilesByDevice: {},
+  customFlows: [],
+  appearance: 'dark',
 });
 
 export const persistPath = (): string =>
   join(app.getPath('userData'), 'nudgeboard.json');
 
+const migrateDevice = (raw: LegacyDevice): StoredDevice | null => {
+  if (typeof raw.id !== 'string' || typeof raw.name !== 'string') {
+    return null;
+  }
+  const tokenHash =
+    typeof raw.tokenHash === 'string' && raw.tokenHash.length === 64
+      ? raw.tokenHash
+      : typeof raw.token === 'string' && raw.token.length >= 8
+        ? hashToken(raw.token)
+        : '';
+  if (!tokenHash) {
+    return null;
+  }
+  const tokenKey =
+    typeof raw.tokenKey === 'string' && raw.tokenKey.length === 64
+      ? raw.tokenKey
+      : typeof raw.token === 'string' && raw.token.length >= 8
+        ? deriveKeyHex(raw.token)
+        : undefined;
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    model: raw.model,
+    os: raw.os,
+    platform: raw.platform,
+    fingerprint: raw.fingerprint,
+    tokenHash,
+    tokenKey,
+    trusted: raw.trusted === true,
+    pairedAt: Number(raw.pairedAt) || Date.now(),
+  };
+};
+
 export const loadPersisted = (): PersistedState => {
   try {
-    const raw = JSON.parse(readFileSync(persistPath(), 'utf8')) as Partial<PersistedState>;
+    const raw = JSON.parse(readFileSync(persistPath(), 'utf8')) as Partial<PersistedState> & {
+      devices?: LegacyDevice[];
+    };
     if (typeof raw.fingerprint !== 'string' || !Array.isArray(raw.devices)) {
       return emptyState();
     }
+    const devices = raw.devices
+      .map(migrateDevice)
+      .filter((device): device is StoredDevice => device !== null);
+    const customFlows = Array.isArray(raw.customFlows)
+      ? raw.customFlows
+          .map((flow) => sanitizeCustomFlow(flow))
+          .filter((flow): flow is CustomFlow => flow !== null)
+      : [];
     return {
       fingerprint: raw.fingerprint,
-      devices: raw.devices,
-      activeDeviceId: raw.activeDeviceId ?? raw.devices[0]?.id ?? null,
+      devices,
+      activeDeviceId:
+        devices.some((device) => device.id === raw.activeDeviceId)
+          ? raw.activeDeviceId ?? null
+          : (devices[0]?.id ?? null),
       tilesByDevice:
         raw.tilesByDevice && typeof raw.tilesByDevice === 'object'
           ? raw.tilesByDevice
           : {},
+      customFlows,
+      appearance: raw.appearance === 'light' ? 'light' : 'dark',
     };
   } catch {
     return emptyState();
@@ -55,5 +116,44 @@ export const loadPersisted = (): PersistedState => {
 };
 
 export const savePersisted = (state: PersistedState): void => {
-  writeFileSync(persistPath(), JSON.stringify(state, null, 2), 'utf8');
+  const sanitized: PersistedState = {
+    ...state,
+    appearance: state.appearance === 'light' ? 'light' : 'dark',
+    devices: state.devices.map((device) => ({
+      id: device.id,
+      name: device.name,
+      model: device.model,
+      os: device.os,
+      platform: device.platform,
+      fingerprint: device.fingerprint,
+      tokenHash: device.tokenHash,
+      tokenKey: device.tokenKey,
+      trusted: device.trusted,
+      pairedAt: device.pairedAt,
+    })),
+  };
+  writeFileSync(persistPath(), JSON.stringify(sanitized, null, 2), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+};
+
+export const forgetDevice = (
+  state: PersistedState,
+  deviceId: string,
+): PersistedState => {
+  const devices = state.devices.filter((device) => device.id !== deviceId);
+  const tilesByDevice = { ...state.tilesByDevice };
+  delete tilesByDevice[deviceId];
+  return {
+    ...state,
+    devices,
+    tilesByDevice,
+    customFlows: devices.length === 0 ? [] : (state.customFlows ?? []),
+    appearance: state.appearance === 'light' ? 'light' : 'dark',
+    activeDeviceId:
+      state.activeDeviceId === deviceId
+        ? (devices[0]?.id ?? null)
+        : state.activeDeviceId,
+  };
 };

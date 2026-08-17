@@ -104,6 +104,19 @@ export function OtpScreen() {
     });
   };
 
+  const acceptPin = () => {
+    void window.api.acceptPending().then((result) => {
+      if (result.ok === false) {
+        setError(result.reason);
+        return;
+      }
+      setSnapshot(result.snapshot);
+      setView('home');
+    });
+  };
+
+  const pinConfirm = pairing?.step === 'confirm' || pairing?.pending?.via === 'pin';
+
   return (
     <section className="panel pairing">
       <button
@@ -115,23 +128,56 @@ export function OtpScreen() {
         ×
       </button>
       <StepProgress step={2} total={2} />
-      <h1>Enter the 6 digits from your phone.</h1>
+      <h1>
+        {pinConfirm
+          ? 'Trust this phone?'
+          : 'Enter the 6 digits from your phone.'}
+      </h1>
       <p className="hint">
-        Keep your phone and this PC on the same Wi-Fi while you pair and use
-        the app.
+        {pinConfirm
+          ? 'This device typed your 6-digit code. Confirm it is yours before it can control this PC.'
+          : 'Keep your phone and this PC on the same Wi-Fi while you pair and use the app.'}
       </p>
       {pairing?.pending ? (
-        <p className="lead">
-          {pairing.pending.name} · fingerprint {pairing.pending.fingerprint}
-        </p>
+        <div className="pending-card">
+          <span className="device-glyph" aria-hidden>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+              <rect
+                x="7"
+                y="2"
+                width="10"
+                height="20"
+                rx="2.4"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              />
+              <path
+                d="M10 4.4h4"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </span>
+          <div className="pending-card-body">
+            <strong>{pairing.pending.name}</strong>
+            {pairing.pending.model && pairing.pending.model !== pairing.pending.name ? (
+              <em>{pairing.pending.model}</em>
+            ) : null}
+            <span className="fp">{pairing.pending.fingerprint}</span>
+            {pairing.pending.ip ? <span>{pairing.pending.ip}</span> : null}
+          </div>
+        </div>
       ) : null}
-      <OtpBoxes
-        value={otp}
-        onChange={(next) => {
-          setError(null);
-          setOtp(next);
-        }}
-      />
+      {pinConfirm ? null : (
+        <OtpBoxes
+          value={otp}
+          onChange={(next) => {
+            setError(null);
+            setOtp(next);
+          }}
+        />
+      )}
       <div className={`timer-row split${expired ? ' expired' : ''}`}>
         <span>{expired ? 'Expired' : `code expires in ${remaining}`}</span>
         <button
@@ -139,18 +185,29 @@ export function OtpScreen() {
           className="link"
           onClick={() => void window.api.generateQr().then(setSnapshot)}
         >
-          Resend
+          {pinConfirm ? 'Reject' : 'Resend'}
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
-      <button
-        type="button"
-        className="btn-primary"
-        disabled={otp.length !== 6}
-        onClick={verify}
-      >
-        Verify &amp; connect
-      </button>
+      {pinConfirm ? (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!pairing?.pending}
+          onClick={acceptPin}
+        >
+          Trust this phone
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={otp.length !== 6}
+          onClick={verify}
+        >
+          Verify &amp; connect
+        </button>
+      )}
     </section>
   );
 }

@@ -1,4 +1,4 @@
-package com.mobile
+package com.nudgeboard.app
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

@@ -1,4 +1,4 @@
-package com.mobile
+package com.nudgeboard.app
 
 import android.app.Application
 import com.facebook.react.PackageList

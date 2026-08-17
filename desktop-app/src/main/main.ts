@@ -3,9 +3,11 @@ import {
   BrowserWindow,
   Menu,
   session,
+  Tray,
   type MenuItemConstructorOptions,
 } from 'electron';
-import { startBridge, stopBridge } from './bridge';
+import { currentAppearance, startBridge, stopBridge, WINDOW_CHROME } from './bridge';
+import { createAppNativeImage, createTrayNativeImage } from './icons';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -18,6 +20,10 @@ const isMac = process.platform === 'darwin';
 const isDev = process.env.NODE_ENV === 'development';
 const PRODUCTION_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:";
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 
 const applyContentSecurityPolicy = (): void => {
   if (isDev) {
@@ -35,6 +41,20 @@ const applyContentSecurityPolicy = (): void => {
 };
 
 const TITLE_BAR_HEIGHT = 36;
+
+const showMainWindow = (): void => {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+};
 
 const createAppMenu = (): void => {
   if (!isMac) {
@@ -60,15 +80,29 @@ const createAppMenu = (): void => {
         { role: 'hideOthers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit' },
+        {
+          label: 'Quit NudgeBoard',
+          accelerator: 'Cmd+Q',
+          click: () => {
+            isQuitting = true;
+            app.quit();
+          },
+        },
       ],
     },
-  ];
-
-  template.push(
     {
       label: 'File',
-      submenu: [isMac ? { role: 'close' } : { role: 'quit' }],
+      submenu: [
+        {
+          label: 'Close Window',
+          accelerator: 'Cmd+W',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.hide();
+            }
+          },
+        },
+      ],
     },
     {
       label: 'Edit',
@@ -79,17 +113,9 @@ const createAppMenu = (): void => {
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
-        ...(isMac
-          ? ([
-              { role: 'pasteAndMatchStyle' },
-              { role: 'delete' },
-              { role: 'selectAll' },
-            ] as MenuItemConstructorOptions[])
-          : ([
-              { role: 'delete' },
-              { type: 'separator' },
-              { role: 'selectAll' },
-            ] as MenuItemConstructorOptions[])),
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
       ],
     },
     {
@@ -111,33 +137,79 @@ const createAppMenu = (): void => {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
-        ...(isMac
-          ? ([
-              { type: 'separator' },
-              { role: 'front' },
-            ] as MenuItemConstructorOptions[])
-          : ([{ role: 'close' }] as MenuItemConstructorOptions[])),
+        { type: 'separator' },
+        { role: 'front' },
       ],
     },
-  );
+  ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
 
+const createTray = (): void => {
+  if (tray) {
+    return;
+  }
+
+  const trayIcon = createTrayNativeImage();
+  tray = new Tray(trayIcon);
+  tray.setToolTip('NudgeBoard — Phone Deck Companion');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open NudgeBoard',
+      click: () => showMainWindow(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit NudgeBoard',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (!mainWindow) {
+      showMainWindow();
+      return;
+    }
+    if (mainWindow.isVisible()) {
+      if (mainWindow.isFocused()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.focus();
+      }
+    } else {
+      showMainWindow();
+    }
+  });
+
+  tray.on('double-click', () => {
+    showMainWindow();
+  });
+};
+
 const createWindow = (): void => {
+  const appIcon = createAppNativeImage();
+  const chrome = WINDOW_CHROME[currentAppearance()];
   const win = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: '#0b0b0c',
+    icon: appIcon,
+    backgroundColor: chrome.backgroundColor,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac
       ? {}
       : {
           titleBarOverlay: {
-            color: '#0b0b0c',
-            symbolColor: '#d4d4d8',
+            color: chrome.backgroundColor,
+            symbolColor: chrome.symbolColor,
             height: TITLE_BAR_HEIGHT,
           },
           autoHideMenuBar: true,
@@ -150,32 +222,65 @@ const createWindow = (): void => {
     },
   });
 
+  mainWindow = win;
+
   if (!isMac) {
     win.setMenuBarVisibility(false);
   }
 
-  void win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
-};
-
-app.whenReady().then(async () => {
-  applyContentSecurityPolicy();
-  createAppMenu();
-  await startBridge();
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+  // Intercept close button: minimize/hide to tray instead of quitting
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      win.hide();
     }
   });
-});
+
+  void win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url !== MAIN_WINDOW_WEBPACK_ENTRY) {
+      event.preventDefault();
+    }
+  });
+};
+
+// Ensure single instance lock so duplicate processes aren't spawned
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
+
+  app.whenReady().then(async () => {
+    applyContentSecurityPolicy();
+    createAppMenu();
+    createTray();
+    await startBridge();
+    createWindow();
+
+    app.on('activate', () => {
+      showMainWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
-  if (!isMac) {
+  if (isQuitting) {
     app.quit();
   }
+  // Keep app running in tray when all windows are closed/hidden
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
   void stopBridge();
 });

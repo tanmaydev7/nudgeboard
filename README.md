@@ -15,6 +15,7 @@ NudgeBoard provides a responsive, low-latency companion deck right from your poc
 - **High-Res Icon Extraction**: Automatically extracts and streams crisp, high-resolution application icons directly to your phone.
 - **Multi-Device & Multi-Profile Support**: Pair multiple phones to one computer or manage multiple computers on one phone, with distinct macro layouts per device.
 - **100% Local & Privacy-First**: Operates exclusively over your local network using direct WebSocket connections. No telemetry, no external servers, no subscriptions.
+- **Application-Layer End-to-End Encryption (AES-256-GCM)**: All post-handshake traffic (deck synchronizations, button presses, session reconnections) is end-to-end encrypted with authenticated AES-256-GCM envelopes and sequence counters to protect against LAN packet sniffing, tampering, and replay attacks.
 
 ---
 
@@ -34,27 +35,33 @@ For an in-depth technical breakdown of the network protocols, message schemas, s
             │    (ws://<desktop-ip>:47890)               │
             │ ─────────────────────────────────────────► │
             │                                            │
-            │ 2. Handshake: `hello` / `hello_pin` / `reconnect`
-            │    (with cryptographic token / OTP)        │
+            │ 2. Handshake: `hello` / `hello_pin`        │
+            │    (with ephemeral QR token & OTP)         │
             │ ─────────────────────────────────────────► │
             │                                            │
             │ 3. Authenticated: `hello_ok`               │
+            │    Establishes AES-256-GCM session key     │
+            │ ◄───────────────────────────────────────── │
+            │                                            │
+            │ 4. Encrypted Deck Sync: `{ type: 'encrypted', ... }`
             │    Broadcasts current deck & base64 icons  │
             │ ◄───────────────────────────────────────── │
             │                                            │
-            │ 4. User taps Tile: `{ type: 'press', id }` │
+            │ 5. Encrypted Action: `{ type: 'encrypted', ... }` (press)
             │ ─────────────────────────────────────────► │
             │                                            │
-            │                                    5. Launches App!
+            │                                    6. Launches App!
             │                                       (Process execution)
 ```
 
 1. **Host Setup**: When the desktop app opens, it starts a local HTTP/WebSocket bridge server on port `47890` (hunting up to port `47909` if occupied) and exposes an ephemeral pairing token.
-2. **Pairing**:
+2. **Pairing & Key Derivation**:
    - **QR Flow**: The mobile app scans the desktop QR code using `react-native-vision-camera`, generates a 6-digit OTP, and connects over WebSocket. The user enters the OTP into the desktop UI to verify ownership (`crypto.timingSafeEqual`).
-   - **PIN Flow**: If camera scanning is skipped, the user inputs the 6-digit desktop PIN. The phone concurrently probes the `/24` subnet (`GET /nudgeboard/pairing`) to auto-discover the desktop host and completes pairing.
-3. **Deck Sync**: The desktop scans installed operating system applications, resolves high-res icons to base64 PNG data URLs, and streams the active layout (`{ type: 'deck', columns: 4, rows: 2, tiles: [...] }`) to the phone.
-4. **Action Execution**: Tapping a tile sends `{ type: 'press', id }` over the WebSocket. The desktop host maps the ID to the assigned application path and spawns the target process natively.
+   - **PIN Flow**: If camera scanning is skipped, the user inputs the 6-digit desktop PIN. The phone concurrently probes the `/24` subnet (`GET /nudgeboard/pairing`) to auto-discover the desktop host and completes pairing upon desktop approval.
+   - **Session Key Derivation**: Once paired, both hosts derive a shared 256-bit symmetric session key via HMAC-SHA256 from the permanent token.
+3. **End-to-End Encrypted Deck Sync**: The desktop scans installed operating system applications, resolves high-res icons to base64 PNG data URLs, and streams the active layout (`{ type: 'deck', columns: 4, rows: 2, tiles: [...] }`) wrapped in an authenticated AES-256-GCM envelope (`{ type: 'encrypted', iv, data, tag, seq }`).
+4. **Encrypted Remote Execution**: Tapping a tile encrypts `{ type: 'press', id }` with the active sequence counter and sends it over the WebSocket. The desktop decrypts and authenticates the payload, maps the ID to the assigned application path, and spawns the target process natively.
+5. **Encrypted Zero-Exposure Reconnect**: Reconnecting devices authenticate using encrypted challenge envelopes (`reconnect_enc`) containing device metadata and freshness timestamps, preventing cleartext token transmission across the local network.
 
 ---
 
@@ -64,7 +71,7 @@ For an in-depth technical breakdown of the network protocols, message schemas, s
 | :--- | :--- |
 | **Desktop App** | [Electron 43](https://www.electronjs.org/), [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Electron Forge](https://www.electronforge.io/), [Webpack](https://webpack.js.org/), [ws (WebSocket)](https://github.com/websockets/ws), [Zustand](https://github.com/pmndrs/zustand) |
 | **Mobile App** | [React Native 0.86](https://reactnative.dev/), [TypeScript](https://www.typescriptlang.org/), [Zustand](https://github.com/pmndrs/zustand) + [AsyncStorage](https://github.com/react-native-async-storage/async-storage), [VisionCamera Barcode Scanner](https://github.com/mrousavy/react-native-vision-camera), [Gorhom Bottom Sheet](https://github.com/gorhom/react-native-bottom-sheet), [Kotlin Android Native Modules](https://kotlinlang.org/) |
-| **Protocol** | Custom JSON-RPC over WebSocket, HTTP LAN discovery probe, base64 PNG icon streaming |
+| **Protocol** | Custom JSON-RPC over WebSocket with AES-256-GCM application-layer E2EE envelopes, HTTP LAN discovery probe, base64 PNG icon streaming |
 
 ---
 
@@ -203,10 +210,13 @@ nudgeboard/
 
 ## Security & Privacy
 
-- **Local Network Bound**: All traffic is strictly confined to your local Wi-Fi subnet.
-- **Constant-Time Verification**: Verification tokens and pairing codes use `crypto.timingSafeEqual()` to guard against timing attacks.
+- **Application-Layer E2EE (AES-256-GCM)**: All application interactions (deck sync, button presses, session reconnection) are end-to-end encrypted using hardware-accelerated AES-256-GCM authenticated envelopes.
+- **Anti-Replay Protection**: Every encrypted frame includes a monotonically increasing sequence counter authenticated in the AES-GCM Additional Authenticated Data (AAD), rendering packet capture and replay attacks impossible.
+- **Hardware-Backed Key Storage**: Long-lived device tokens are protected in Android `EncryptedSharedPreferences` (backed by Android Keystore) and iOS `Keychain` (with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). On the desktop, keys are stored with restricted POSIX file permissions (`0o600`).
+- **Local Network Bound**: All traffic is strictly confined to your private local Wi-Fi subnet (`RFC1918`). Public IP connections are strictly rejected.
+- **Constant-Time Verification**: Verification tokens and pairing codes use `crypto.timingSafeEqual()` to guard against timing side-channel attacks.
 - **Short-Lived Sessions**: Unpaired QR codes expire in 5 minutes; OTP verification requests expire in 2 minutes.
-- **Strict Electron Sandboxing**: Electron renderer operates in isolated sandbox contexts (`contextIsolation: true`, `nodeIntegration: false`, production CSP).
+- **Strict Electron Sandboxing**: Electron renderer operates in isolated sandbox contexts (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, and strict Content Security Policy).
 
 ---
 

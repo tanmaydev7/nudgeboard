@@ -1,3 +1,4 @@
+/* eslint-env jest */
 jest.mock('@gorhom/bottom-sheet', () => require('@gorhom/bottom-sheet/mock'));
 jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
