@@ -129,7 +129,8 @@ html[data-theme='light'] {
 }
 
 .shell.win .theme-dock {
-  top: calc(env(titlebar-area-height, 36px) + 10px);
+  /* env() can report 0 after overlay/theme updates; never sit in the caption hit-test. */
+  top: max(46px, calc(env(titlebar-area-height, 36px) + 10px));
 }
 
 .shell.mac.home .theme-dock {

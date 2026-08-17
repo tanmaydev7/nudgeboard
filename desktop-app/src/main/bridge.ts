@@ -276,16 +276,34 @@ export const currentAppearance = (): Appearance =>
 
 export const applyAppearanceChrome = (): void => {
   const mode = currentAppearance();
-  nativeTheme.themeSource = mode;
+  try {
+    if (nativeTheme.themeSource !== mode) {
+      nativeTheme.themeSource = mode;
+    }
+  } catch {
+    // Chromium can stall or throw on repeated themeSource writes.
+  }
   const chrome = WINDOW_CHROME[mode];
   for (const win of BrowserWindow.getAllWindows()) {
-    win.setBackgroundColor(chrome.backgroundColor);
-    if (process.platform === 'win32') {
+    if (win.isDestroyed()) {
+      continue;
+    }
+    try {
+      win.setBackgroundColor(chrome.backgroundColor);
+    } catch {
+      continue;
+    }
+    if (process.platform !== 'win32') {
+      continue;
+    }
+    try {
       win.setTitleBarOverlay({
         color: chrome.backgroundColor,
         symbolColor: chrome.symbolColor,
         height: 36,
       });
+    } catch {
+      // Overlay updates fail after hide-to-tray, maximize, or DPI changes.
     }
   }
 };
@@ -1624,10 +1642,17 @@ export const startBridge = async (): Promise<void> => {
   });
   ipcMain.handle('bridge:set-appearance', (_event, mode: unknown) => {
     persisted.appearance = mode === 'light' ? 'light' : 'dark';
-    save();
-    applyAppearanceChrome();
+    try {
+      save();
+    } catch {
+      // Keep the in-memory theme even if the persist file is locked.
+    }
+    const next = snapshot();
     sendToRenderer();
-    return snapshot();
+    setImmediate(() => {
+      applyAppearanceChrome();
+    });
+    return next;
   });
   ipcMain.handle('bridge:get-mac-permissions', () => {
     if (process.platform !== 'darwin') {
