@@ -47,6 +47,7 @@ const config: ForgeConfig = {
       {
         name: 'Nudgeboard',
         format: 'ULFO',
+        overwrite: true,
       },
       ['darwin'],
     ),
