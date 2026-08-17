@@ -1,0 +1,70 @@
+name: Windows EXE
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: win-exe-${{ github.event.release.tag_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-exe:
+    name: Build Windows x64 installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop-app
+        shell: bash
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+
+      - name: Check package.json version matches the release tag
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="${{ github.event.release.tag_name }}"
+          TAG="${TAG#v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "desktop-app/package.json version ($VERSION) does not match release tag (${{ github.event.release.tag_name }})."
+            echo "Bump the version, commit, then create the GitHub Release with tag v$VERSION."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows x64 installer
+        run: npm run make:win
+
+      - name: Name the installer for the release
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir -p dist-release
+          SETUP="$(find out/make -name '*Setup.exe' -type f | head -n 1)"
+          if [ -z "$SETUP" ]; then
+            echo "No Windows Setup.exe was produced under desktop-app/out/make"
+            find out -type f | sort
+            exit 1
+          fi
+          mv "$SETUP" "dist-release/Nudgeboard-${VERSION}-win-x64.exe"
+          ls -lh dist-release
+
+      - name: Attach installer to the GitHub Release
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            desktop-app/dist-release/*.exe \
+            --clobber
