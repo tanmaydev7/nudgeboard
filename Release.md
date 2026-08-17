@@ -6,22 +6,64 @@ Creating a GitHub Release is what builds the DMG. You do not build or upload the
 
 to that release.
 
-Work **from the bottom of this page to the top**. The last human step is creating the GitHub Release.
+Follow the numbered steps from top to bottom. Creating the GitHub Release is what starts the DMG build.
 
 ---
 
-## 5. Confirm the DMG on the release (top)
+## 1. One-time setup (do this before the first DMG release)
 
-After you create the release:
+Nothing extra is required for an unsigned DMG:
 
-1. Open the repo **Actions** tab and wait for **Mac DMG** to finish on the tag you just published.
-2. Refresh the GitHub Release page. The asset `Nudgeboard-<version>-mac-universal.dmg` should be listed.
-3. Download it, open the DMG, drag **Nudgeboard** into **Applications**, and launch it.
-4. Pair a phone on the same Wi-Fi and press one tile to confirm the Mac helper still works.
+- The workflow file is `.github/workflows/mac-dmg.yml`.
+- GitHub Actions must be enabled on the repo (default for public repos).
+- No Apple certificates or GitHub secrets are needed for the current unsigned build.
+- Builds run on GitHub’s macOS runners. A local Mac is optional.
 
-If the job failed because the tag did not match `desktop-app/package.json`, delete that GitHub Release (and the tag if you created a bad one), then start again from step 2.
+First-time checklist:
 
-macOS Gatekeeper will warn that the app is unsigned. That is expected until Apple code signing is added. First launch: right-click the app → **Open** → **Open**.
+- [ ] `.github/workflows/mac-dmg.yml` is on the default branch (or on the branch you tag).
+- [ ] `desktop-app/package.json` has a real version you intend to ship (not a leftover `1.0.0` if that was never released).
+- [ ] You can create GitHub Releases on this repo.
+
+Optional local smoke-test on a Mac, before you trust CI:
+
+```bash
+cd desktop-app
+npm ci
+npm run make:dmg
+```
+
+The DMG lands under `desktop-app/out/make/`. CI still produces the copy that goes on the GitHub Release.
+
+---
+
+## 2. Bump the desktop app version
+
+The version baked into the app and the DMG filename comes from `desktop-app/package.json`, not from the GitHub tag text alone.
+
+```bash
+cd desktop-app
+npm version 1.1.0 --no-git-tag-version
+```
+
+`--no-git-tag-version` only updates `package.json` and `package-lock.json`. You will create the git tag in the GitHub Release UI (step 4), not here.
+
+Replace `1.1.0` with the version you are shipping. Follow semver (`major.minor.patch`).
+
+---
+
+## 3. Commit the version bump
+
+From the repo root, on the branch you will tag:
+
+```bash
+git add desktop-app/package.json desktop-app/package-lock.json
+git commit -m "Release 1.1.0"
+```
+
+The GitHub Release tag must point at **this** commit (or a later commit that still has this version). If you tag an older commit, the Action builds the old version and then fails the version check.
+
+This commit must also include `.github/workflows/mac-dmg.yml` the first time you ship this flow.
 
 ---
 
@@ -52,60 +94,18 @@ The workflow fails if those two numbers disagree, so the binary version and the 
 
 ---
 
-## 3. Commit the version bump
+## 5. Confirm the DMG on the release
 
-From the repo root, on the branch you will tag:
+After you create the release:
 
-```bash
-git add desktop-app/package.json desktop-app/package-lock.json
-git commit -m "Release 1.1.0"
-```
+1. Open the repo **Actions** tab and wait for **Mac DMG** to finish on the tag you just published.
+2. Refresh the GitHub Release page. The asset `Nudgeboard-<version>-mac-universal.dmg` should be listed.
+3. Download it, open the DMG, drag **Nudgeboard** into **Applications**, and launch it.
+4. Pair a phone on the same Wi-Fi and press one tile to confirm the Mac helper still works.
 
-The GitHub Release tag must point at **this** commit (or a later commit that still has this version). If you tag an older commit, the Action builds the old version and then fails the version check.
+If the job failed because the tag did not match `desktop-app/package.json`, delete that GitHub Release (and the tag if you created a bad one), then start again from step 2.
 
-This commit must also include `.github/workflows/mac-dmg.yml` the first time you ship this flow.
-
----
-
-## 2. Bump the desktop app version
-
-The version baked into the app and the DMG filename comes from `desktop-app/package.json`, not from the GitHub tag text alone.
-
-```bash
-cd desktop-app
-npm version 1.1.0 --no-git-tag-version
-```
-
-`--no-git-tag-version` only updates `package.json` and `package-lock.json`. You will create the git tag in the GitHub Release UI (step 4), not here.
-
-Replace `1.1.0` with the version you are shipping. Follow semver (`major.minor.patch`).
-
----
-
-## 1. One-time setup (bottom — do this before the first DMG release)
-
-Nothing extra is required for an unsigned DMG:
-
-- The workflow file is `.github/workflows/mac-dmg.yml`.
-- GitHub Actions must be enabled on the repo (default for public repos).
-- No Apple certificates or GitHub secrets are needed for the current unsigned build.
-- Builds run on GitHub’s macOS runners. A local Mac is optional.
-
-First-time checklist:
-
-- [ ] `.github/workflows/mac-dmg.yml` is on the default branch (or on the branch you tag).
-- [ ] `desktop-app/package.json` has a real version you intend to ship (not a leftover `1.0.0` if that was never released).
-- [ ] You can create GitHub Releases on this repo.
-
-Optional local smoke-test on a Mac, before you trust CI:
-
-```bash
-cd desktop-app
-npm ci
-npm run make:dmg
-```
-
-The DMG lands under `desktop-app/out/make/`. CI still produces the copy that goes on the GitHub Release.
+macOS Gatekeeper will warn that the app is unsigned. That is expected until Apple code signing is added. First launch: right-click the app → **Open** → **Open**.
 
 ---
 
@@ -131,7 +131,8 @@ Typical runtime is 10–20 minutes.
 | Workflow never starts | The file must exist on the tagged commit. Confirm the tag points at a commit that includes `.github/workflows/mac-dmg.yml`. |
 | Version mismatch error | Tag `vX.Y.Z` must match `desktop-app/package.json`. Bump, commit, retag. |
 | No DMG on the release | Open the failed **Mac DMG** job logs. Re-run the job after a runner flake; `--clobber` replaces a partial upload. |
-| App is “damaged” or blocked | Unsigned build. Right-click → Open, or remove quarantine: `xattr -cr /Applications/Nudgeboard.app`. |
+| App is “damaged” or blocked | Unsigned build. On current macOS: System Settings → Privacy & Security → Open Anyway, or remove quarantine: `xattr -cr /Applications/Nudgeboard.app`. |
+| App quits immediately (Code Signature Invalid) | Fuse flips invalidated Electron’s signature and ad-hoc re-sign failed. Re-sign this copy: `codesign --sign - --force --deep --timestamp=none /Applications/Nudgeboard.app`. Then rebuild the DMG so CI signs it. |
 | Intel Mac cannot open it | You tagged a commit from before this workflow, or the make step was not `--arch=universal`. Rebuild from current `make:dmg`. |
 
 Code signing and notarization are not part of this pipeline. Add Apple Developer ID signing later if you want Gatekeeper to stay silent.
