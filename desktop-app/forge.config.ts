@@ -76,6 +76,9 @@ const config: ForgeConfig = {
     // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
+      // Fuse flips invalidate signatures. The plugin then ad-hoc-signs only
+      // arm64, which adds CodeResources files x64 lacks and breaks universal merge.
+      resetAdHocDarwinSignature: false,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
